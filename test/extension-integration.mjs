@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';import {Readable} from 'node:stream';import {mkdtemp,rm} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
+import {GuideStore} from '../lib/store.js';import {ExtensionStore} from '../lib/extension-store.js';import {createGuideRoutes} from '../lib/routes.js';import {createSessionHook} from '../lib/session-hook.js';import {runTemplateBatch,runHelperScript} from '../lib/extension-runtime.js';
+const dir=await mkdtemp(path.join(os.tmpdir(),'wg-ext-int-'));const store=new GuideStore(dir);await store.ensure();const ext=new ExtensionStore(dir);
+const routes=createGuideRoutes({store,extensionStore:ext,runtime:{runTemplateBatch,runHelperScript},readSessionMessages:async id=>({writer:id==='s',messages:[]}),listModes:()=>[],lastState:()=>({})});
+async function call(url,body,method='POST'){const req=Readable.from(body===undefined?[]:[Buffer.from(JSON.stringify(body))]);req.method=method;let answer;const res={headersSent:false,writableEnded:false,setHeader(){},end(value){answer={status:this.statusCode,...JSON.parse(value)}}};const handled=await routes(req,res,new URL('http://localhost/api/writing-guide'+url));assert.ok(handled,url);return answer;}
+const imported=await call('/extensions/helper/import',{data:{type:'script',id:'original',name:'fixture',content:'replaceVariables({count:2}); replaceVariables({ok:true},{type:"script"}); return getVariables();',button:{buttons:[{name:'untouched'}]},data:{metadata:'keep'}}});assert.equal(imported.imported,1);
+let state=await ext.load();const id=state.helper.scripts[0].id;assert.equal(state.helper.scripts[0].enabled,false);assert.equal(state.helper.scripts[0].button.buttons[0].name,'untouched');
+assert.equal((await call('/extensions/helper/run',{sessionId:'s',scriptId:id})).status,400);
+await call('/extensions/helper/enabled',{enabled:true});await call('/extensions/helper/'+id+'/enabled',{enabled:true});
+assert.equal((await call('/extensions/helper/run',{sessionId:'other',scriptId:id})).status,400);
+assert.deepEqual((await call('/extensions/helper/run',{sessionId:'s',scriptId:id})).result,{count:2});let snap=await ext.sessionVars('s');assert.equal(snap.scriptVars[id].ok,true);
+await assert.rejects(ext.saveSessionVars('s',{vars:{bad:true},expectedVersion:0}),/更新/);
+assert.equal((await ext.sessionVars('new')).version,0);
+const pv=await call('/extensions/template/preview',{text:'<% setvar("x",1,{scope:"local"}); %><%- getvar("x") %>'});assert.equal(pv.texts[0],'1');assert.equal((await ext.sessionVars('s')).vars.x,undefined);
+await call('/extensions/regex/import',{data:{scriptName:'fixture',findRegex:'/private/g',replaceString:'clean',placement:[1],promptOnly:true,maxDepth:null,minDepth:null}});state=await ext.load();const rx=state.regex.global[0];assert.equal(rx.disabled,true);assert.equal(rx.maxDepth,null);await ext.setEnabled(rx.id,true);
+const rp=await call('/extensions/regex/preview',{text:'private',mode:'send',placement:1,depth:5});assert.equal(rp.result.output,'clean');
+const preset={id:'p',prompts:[{identifier:'main',role:'system',content:'<% setvar("turn",getvar("turn",{defaults:0})+1,{scope:"local"}); %>TURN=<%- getvar("turn") %>'},{identifier:'chatHistory',marker:true}],prompt_order:[{order:[{identifier:'main',enabled:true},{identifier:'chatHistory',enabled:true}]}]};await store.savePreset(preset);await store.saveSettings({enabled:true,contextWindow:10000,maxTokens:100,includeWorlds:false});await ext.updateSection('template',{enabled:true,allowedPresetIds:['p']});
+const captures=[],diagnostics=new Map();let fail=false;const transport=async args=>{captures.push(args.plan.messages);return {ok:!fail,content:'OK',finish:fail?'length':'stop'}};const hook=createSessionHook({store,extensionStore:ext,runTemplateBatch,diagnostics,transport});
+const binding={presetId:'p',cardId:'',worldIds:[],worldSelection:'none',provider:'test',model:'m'};const options={messages:[{id:'m1',role:'user',source:{kind:'user'},content:[{type:'text',text:'private <% throw Error("never") %>'}]}]};
+for await(const chunk of hook(options,'writer',binding)){}assert.equal((await ext.sessionVars('writer')).vars.turn,1);assert.ok(captures.at(-1).some(m=>m.content==='TURN=1'));assert.ok(captures.at(-1).some(m=>m.content.includes('clean <% throw Error("never") %>')));
+fail=true;for await(const chunk of hook(options,'writer',binding)){}assert.equal((await ext.sessionVars('writer')).vars.turn,1);
+console.log('extension-integration: real routes, imports, toggles, preview, writer pipeline, rollback and CAS passed');
+await rm(dir,{recursive:true,force:true});

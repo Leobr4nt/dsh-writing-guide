@@ -24,6 +24,8 @@ import { streamGeneration, isSuccessfulFinish } from './lib/generate.js';
 import { generateForWork } from './lib/writer.js';
 import { resolveChatRoute, resolveTransportKey, postChatCompletion, buildChatBody } from './lib/chat-transport.js';
 import { BindingCache } from './lib/session-bindings.js';
+import { ExtensionStore } from './lib/extension-store.js';
+import { runTemplateBatch, runHelperScript } from './lib/extension-runtime.js';
 import { registerSessionHook } from './lib/session-hook.js';
 
 export const inject = ['webServer'];
@@ -117,6 +119,7 @@ const SAMPLE_WORLD = normalizeWorld({
 export function apply(ctx, config = {}) {
   const store = new GuideStore(config.dataDir || DEFAULT_DATA_DIR);
   const bindingCache = new BindingCache({ defaultBinding: {}, bindings: {} });
+  const extensionStore = new ExtensionStore(store.root);
   const sessionDiagnostics = new Map();
   const sessionListDiagnostics = [];
   const logger = typeof ctx.logger === 'function' ? ctx.logger('writing-guide') : null;
@@ -236,6 +239,8 @@ export function apply(ctx, config = {}) {
     sessions: service('sessions'),
     agentPresets: service('agentPresets'),
     llm: service('llm'),
+    extensionStore,
+    runTemplateBatch,
     isEnabled: () => bindingCache.isEnabled(),
   }));
 
@@ -293,6 +298,40 @@ export function apply(ctx, config = {}) {
     return { rows, attempts };
   };
 
+  /** 读某会话的**真实** user/assistant 消息（gateway session/events，bridge 同款调用）。 */
+  const readSessionMessages = async (sessionId) => {
+    const gateway = service('typertGateway');
+    let peer;
+    try {
+      const listing = await collectSessions();
+      const info = listing.rows.find(row => row.id === sessionId);
+      if (!info) throw new Error('找不到会话');
+      if (!info.writer) return { writer:false, preset:info.preset, messages:[] };
+      peer = service('connection').createPeer({ principal:{kind:'owner'}, interactions:'none' });
+      const records = []; let beforeSeq;
+      for (let page=0; page<25; page++) {
+        const result = await gateway.invoke({namespace:'session',method:'events',args:{request:{address:{kind:'session',sessionId},maxMessages:40,...(beforeSeq===undefined?{}:{beforeSeq})}},peer,signal:AbortSignal.timeout(5000)});
+        if (!Array.isArray(result?.records)) throw new Error('会话事件响应格式无效');
+        records.push(...result.records);
+        if (!result.hasMore) break;
+        const seqs=result.records.map(r=>r.event?.seq).filter(Number.isFinite);
+        if (!seqs.length || page===24) throw new Error('会话过长，首批助手最多读取 1000 条原始消息');
+        beforeSeq=Math.min(...seqs);
+      }
+      const messages=records.sort((a,b)=>(a.event?.seq??0)-(b.event?.seq??0)).flatMap(record=>{
+        const event=record.event;
+        const message=event?.type==='user/message'?event.data:event?.type==='assistant/message'?event.data?.message:null;
+        if(!message || (event.type==='user/message' && message.source?.kind!=='user'))return [];
+        const parts=Array.isArray(message.content)?message.content:[];
+        if(parts.some(block=>block.type==='tool-call'))return [];
+        const content=parts.filter(block=>block.type==='text').map(block=>block.text??'').join('');
+        return content.trim()?[{role:message.role,content}]:[];
+      });
+      return {writer:true,preset:info.preset,messages};
+    } catch(error) { return {writer:false,messages:[],error:String(error?.message??error)}; }
+    finally { peer?.dispose?.(); }
+  };
+
   const routes = createGuideRoutes({
     store,
     listModes,
@@ -303,6 +342,9 @@ export function apply(ctx, config = {}) {
     defaultModel,
     listRoutes,
     bindings: bindingCache,
+    extensionStore,
+    runtime: { runTemplateBatch, runHelperScript },
+    readSessionMessages,
     listSessions: collectSessions,
   });
 

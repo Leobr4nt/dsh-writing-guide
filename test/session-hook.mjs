@@ -256,5 +256,76 @@ const collect = async (stream) => {
   assert.equal(JSON.stringify(record).includes('content'), false, '诊断不含正文');
 }
 
+// 15) 正则只在发送副本转换：transport 看到替换后的文本，原始 messages 不变
+{
+  const seen = [];
+  const bindings = new BindingCache({ bindings: { s15: { presetId: 'p', provider: 'catiecli', model: 'm' } } });
+  const extensionStore = {
+    load: async () => ({
+      global: [{
+        id: 'rx1', scriptName: 'demo', findRegex: '/foo/g', replaceString: 'bar',
+        placement: [1, 2], disabled: false, substituteRegex: 0, trimStrings: [],
+      }],
+    }),
+  };
+  let captured;
+  registerSessionHook({
+    ctx: { on: (_name, handler) => { captured = handler; return () => {}; } },
+    store,
+    bindings,
+    transport: async ({ plan }) => { seen.push(plan.messages.map((m) => m.content)); return { ok: true, content: 'ok', finish: 'stop', usage: null }; },
+    log: () => {},
+    diagnostics: new Map(),
+    sessions: { get: () => ({ id: 'x' }) },
+    agentPresets: { presetForSession: () => 'writer' },
+    isEnabled: () => true,
+    llm: null,
+    extensionStore,
+  });
+  const original = [
+    { id: 'u1', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'foo 原始' }] },
+  ];
+  const stream = captured({ provider: 'x', model: 'y', sessionId: 's15', messages: original }, () => 'no');
+  for await (const _chunk of stream) { /* drain */ }
+  const sentUser = seen[0].find((line) => String(line).includes('bar'));
+  assert.ok(sentUser, '发送副本里 user 文本已被正则替换');
+  assert.equal(String(original[0].content[0].text), 'foo 原始', '原始 DSH 历史未被修改');
+}
+
+// 16) 模板渲染失败 → 终止本次生成（标准 error finish），不调用 transport
+{
+  const diag = new Map();
+  const bindings = new BindingCache({ bindings: { s16: { presetId: 'p', provider: 'catiecli', model: 'm' } } });
+  let transportCalls = 0;
+  let captured;
+  registerSessionHook({
+    ctx: { on: (_name, handler) => { captured = handler; return () => {}; } },
+    store,
+    bindings,
+    transport: async () => { transportCalls += 1; return { ok: true, content: 'x', finish: 'stop', usage: null }; },
+    log: () => {},
+    diagnostics: diag,
+    sessions: { get: () => ({ id: 'x' }) },
+    agentPresets: { presetForSession: () => 'writer' },
+    isEnabled: () => true,
+    llm: null,
+    extensionStore: {
+      load: async () => ({ regex: { global: [] }, template: { enabled: true, allowedPresetIds: ['p'] }, helper: { enabled: false, scripts: [] }, sessions: {} }),
+      sessionVars: async () => ({ vars: {}, messageVars: {}, scriptVars: {}, version: 1 }),
+      saveSessionVars: async () => ({}),
+    },
+    runTemplateBatch: async () => { throw new Error('EJS boom'); },
+  });
+  const stream = captured({ provider: 'x', model: 'y', sessionId: 's16', messages }, () => 'no');
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  assert.equal(transportCalls, 0, '模板失败不得发请求');
+  assert.equal(chunks.at(-1).type, 'finish');
+  assert.equal(chunks.at(-1).reason.kind, 'error');
+  assert.equal(chunks.at(-1).reason.failure.code, 'WRITING_GUIDE_TEMPLATE');
+  assert.match(chunks.at(-1).reason.failure.message, /模板渲染失败/);
+  assert.equal(diag.get('s16')?.ok, false);
+}
+
 await rm(root, { recursive: true, force: true });
 console.log('session-hook: 全部通过');

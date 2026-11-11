@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-writing-guide",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "为 DeepSeek Harness 增加写作模式，在正常会话中应用预设、世界书和角色卡。",
@@ -17,7 +17,8 @@
     "locale/*.json",
     "icon.svg",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "dsh": {
     "bundle": {
@@ -33,5 +34,10 @@
   },
   "scripts": {
     "test": "node scripts/test.mjs"
+  },
+  "dependencies": {
+    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
+    "ejs": "3.1.10",
+    "quickjs-emscripten-core": "0.32.0"
   }
 }

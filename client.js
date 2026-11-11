@@ -1258,6 +1258,56 @@ window.__ModuleLoader__.load({
       ]);
     }
 
+    /** 扩展：正则 / 模板 / 助手（三分区，明确列 unsupported）。 */
+    function ExtensionsPanel({ data, notify, fail }) {
+      const [state,setState]=useState(null),[section,setSection]=useState('regex');
+      const [sessions,setSessions]=useState([]),[sessionId,setSessionId]=useState('');
+      const [presetId,setPresetId]=useState(''),[input,setInput]=useState(''),[result,setResult]=useState('');
+      const [mode,setMode]=useState('send'),[placement,setPlacement]=useState(2),[depth,setDepth]=useState('0');
+      const [json,setJson]=useState(''),[editId,setEditId]=useState(''),[busy,setBusy]=useState(false);
+      const [template,setTemplate]=useState({enabled:false,allowedPresetIds:[]});
+      const load=useCallback(async()=>{
+        try {const value=await call('/extensions');setState(value);setTemplate(value.template);const s=await call('/sessions');setSessions((Array.isArray(s.sessions)?s.sessions:[]).filter(x=>x.writer||x.preset==='writer'));}catch(e){fail(e);}
+      },[fail]);
+      useEffect(()=>{load();},[load]);
+      const act=async(fn,refresh=false)=>{setBusy(true);try{const r=await fn();setResult(JSON.stringify(r,null,2));if(refresh)await load();notify('操作完成');}catch(e){fail(e);}finally{setBusy(false);}};
+      if(!state)return h('div',{},'读取扩展配置…');
+      const button=(label,fn,disabled=false)=>h('button',{className:'wg-btn',disabled:busy||disabled,onClick:()=>act(fn,true)},label);
+      const fileInput=()=>h('label',{className:'wg-btn'},['选择 JSON 文件',h('input',{type:'file',accept:'.json,application/json',style:{display:'none'},onChange:async e=>{try{setJson(await e.target.files[0].text());setEditId('');}catch(x){fail(x);}e.target.value='';}})]);
+      const output=h('pre',{className:'wg-pre',style:{whiteSpace:'pre-wrap',maxHeight:350,overflow:'auto'}},result);
+      const presetOptions=[h('option',{key:'none',value:''},'（仅全局正则）'),...(data.presets??[]).map(p=>h('option',{key:p.id,value:p.id},p.name))];
+      return h('div',{className:'wg-body'},[
+        h('div',{key:'tabs',className:'wg-bar'},[['regex','正则'],['template','提示词模板'],['helper','酒馆助手']].map(([id,label])=>h('button',{key:id,className:'wg-btn'+(section===id?' wg-btn-primary':''),onClick:()=>{setSection(id);setJson('');setEditId('');setResult('');}},label))),
+        section==='regex'?h('div',{key:'regex',className:'wg-card'},[
+          h('h4',{},'正则管理'),h('div',{className:'wg-hint'},'按全局 → 预设 → 角色顺序处理发送副本。原始会话保留。显示规则目前只预览。导入后需手动启用。'),
+          ...state.regex.map(s=>h('div',{key:s.id,className:'wg-bar'},[h('span',{},s.scriptName),h('span',{className:'wg-hint'},s.disabled?'已停用':'已启用'),button(s.disabled?'启用':'停用',()=>api('POST',`/extensions/regex/${encodeURIComponent(s.id)}/enabled`,{enabled:s.disabled})),h('button',{className:'wg-btn',onClick:()=>{setJson(JSON.stringify(s,null,2));setEditId(s.id);}},'编辑')])),
+          h('div',{className:'wg-bar'},[fileInput(),h('button',{className:'wg-btn',onClick:()=>{setEditId('');setJson(JSON.stringify({scriptName:'新正则',findRegex:'/旧词/g',replaceString:'新词',placement:[2],promptOnly:true,markdownOnly:false,disabled:true,minDepth:null,maxDepth:null,trimStrings:[],substituteRegex:0},null,2));}},'新建')]),
+          h(Field,{label:'正则 JSON（可编辑完整字段）'},h('textarea',{value:json,onChange:e=>setJson(e.target.value)})),
+          button(editId?'保存修改':'导入正则（默认停用）',()=>editId?api('POST','/extensions/regex',{script:{...JSON.parse(json),id:editId}}):api('POST','/extensions/regex/import',{data:JSON.parse(json)}),!json.trim()),
+          h('h4',{},'预览'),h(Field,{label:'包含预设的内置正则'},h('select',{value:presetId,onChange:e=>setPresetId(e.target.value)},presetOptions)),
+          h('div',{className:'wg-bar'},[h('label',{},['阶段 ',h('select',{value:mode,onChange:e=>setMode(e.target.value)},[h('option',{value:'send'},'发送给模型'),h('option',{value:'display'},'界面显示（仅预览）')])]),h('label',{},['消息 ',h('select',{value:placement,onChange:e=>setPlacement(Number(e.target.value))},[h('option',{value:1},'用户'),h('option',{value:2},'助手')])]),h('label',{},['深度 ',h('input',{type:'number',min:0,value:depth,onChange:e=>setDepth(e.target.value),style:{width:70}})])]),
+          h(Field,{label:'测试文本'},h('textarea',{value:input,onChange:e=>setInput(e.target.value)})),
+          button('运行正则预览',()=>api('POST','/extensions/regex/preview',{text:input,presetId,mode,placement,depth:Number(depth)})),output,
+        ]):null,
+        section==='template'?h('div',{key:'template',className:'wg-card'},[
+          h('h4',{},'提示词模板（EJS）'),h('div',{className:'wg-hint'},'支持表达式、条件、循环和 local/message/cache 变量。只处理已授权预设的配置材料，不执行聊天历史中的代码；生成成功后保存变量。全局变量、世界书指令注入及输出模板尚未支持。'),
+          h('label',{},[h('input',{type:'checkbox',checked:template.enabled,onChange:e=>setTemplate({...template,enabled:e.target.checked})}),' 启用提示词模板']),
+          ...(data.presets??[]).map(p=>h('label',{key:p.id},[h('input',{type:'checkbox',checked:template.allowedPresetIds.includes(p.id),onChange:e=>setTemplate({...template,allowedPresetIds:e.target.checked?[...template.allowedPresetIds,p.id]:template.allowedPresetIds.filter(id=>id!==p.id)})}),' '+p.name])),
+          button('保存模板设置',()=>api('POST','/extensions/template',template)),
+          h(Field,{label:'模板预览（不保存变量）'},h('textarea',{value:input,placeholder:'<% setvar("章节", 1); %>第 <%- getvar("章节") %> 章',onChange:e=>setInput(e.target.value)})),
+          button('运行模板预览',()=>api('POST','/extensions/template/preview',{text:input})),output,
+        ]):null,
+        section==='helper'?h('div',{key:'helper',className:'wg-card'},[
+          h('h4',{},'酒馆助手 · 基础脚本'),h('div',{className:'wg-hint'},'支持 chat/script 变量、只读消息列表和同步/立即完成的异步代码。脚本只在手动点击时运行；网络、DOM、宿主事件、斜杠命令和第三方 UI 库尚未支持。'),
+          button(state.helper.enabled?'关闭助手':'启用助手',()=>api('POST','/extensions/helper/enabled',{enabled:!state.helper.enabled})),
+          h(Field,{label:'运行目标写作会话'},h('select',{value:sessionId,onChange:e=>setSessionId(e.target.value)},[h('option',{value:''},'请选择'),...sessions.map(s=>h('option',{key:s.id,value:s.id},s.title||s.id))])),
+          ...state.helper.scripts.map(s=>h('div',{key:s.id,className:'wg-bar'},[h('span',{},s.name),button(s.enabled?'停用':'启用',()=>api('POST',`/extensions/helper/${encodeURIComponent(s.id)}/enabled`,{enabled:!s.enabled})),button('手动运行',()=>api('POST','/extensions/helper/run',{scriptId:s.id,sessionId}),!s.enabled||!state.helper.enabled||!sessionId)])),
+          fileInput(),h(Field,{label:'脚本 JSON（单脚本、数组、文件夹或含脚本的预设）'},h('textarea',{value:json,onChange:e=>setJson(e.target.value)})),button('导入脚本（默认停用）',()=>api('POST','/extensions/helper/import',{data:JSON.parse(json)}),!json.trim()),output,
+        ]):null,
+        h('div',{key:'limits',className:'wg-card'},[h('h4',{},'兼容范围'),...(state.unsupported??[]).map((x,i)=>h('div',{key:i,className:'wg-hint'},x))]),
+      ]);
+    }
+
     function WorksPanel({ data, reload, notify, fail }) {
       const [creating, setCreating] = useState(false);
       const [works, setWorks] = useState([]);
@@ -1491,6 +1541,7 @@ window.__ModuleLoader__.load({
           h('div', { key: 'tabs', className: 'wg-tabs' }, [
             ['config', '写作配置'],
             ['cards', '角色卡'],
+            ['ext', '扩展'],
             ['inject', '注入'],
             ['worlds', '世界书'],
             ['presets', '预设'],
@@ -1525,6 +1576,8 @@ window.__ModuleLoader__.load({
                   ? h(ConfigPanel, { key: 'config', data, reload, notify, fail })
                   : tab === 'cards'
                   ? h(CardsPanel, { key: 'cards', data, reload, notify, fail })
+                  : tab === 'ext'
+                  ? h(ExtensionsPanel, { key: 'ext', data, notify, fail })
                   : h(WorksPanel, { key: 'works', data, reload, notify, fail }),
         ]),
       ]);

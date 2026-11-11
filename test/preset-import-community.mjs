@@ -51,7 +51,7 @@ assert.deepEqual(compat.markers.unsupported, [], 'marker 全支持');
 assert.equal(compat.counts.enabled, 5, '启用 5 条');
 assert.equal(compat.counts.disabled, 1, '禁用 1 条');
 assert.ok(compat.macros.unsupported.some(([name]) => name === 'unknownmac'), '未知宏要报出');
-assert.ok(compat.unsupported.some((line) => line.includes('regex_scripts')), '正则脚本仅保留数据');
+assert.ok((compat.partial ?? []).some((line) => line.includes('正则')), '正则走发送副本（partial），不是完全不支持');
 assert.ok(compat.unsupported.some((line) => line.includes('tavern_helper')), '内嵌脚本仅保留数据');
 
 const preset = normalizePreset({ ...fixture, id: 'fixture-community' });

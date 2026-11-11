@@ -1845,16 +1845,52 @@ window.__ModuleLoader__.load({
         h('div',{'data-writing-panel-content':true,style:{boxSizing:'border-box',width:'100%',maxWidth:'var(--dsh-composer-card-max-width, 952px)',margin:'0 auto',display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',fontSize:12,lineHeight:'20px',padding:'4px 0',color:'var(--dsw-alias-label-secondary, inherit)',overflowWrap:'anywhere'}},content));
     }
 
-    function ReadingFrame({html}){
-      const frame=useRef(null);
+    function ReadingFrame({row,sessionId}){
+      const wrapper=useRef(null),frame=useRef(null),[surface,setSurface]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[text,setText]=useState('');
+      const generation=useRef(0);
+      const load=useCallback(async()=>{
+        const current=++generation.current;setBusy(true);setError('');
+        try{const width=Math.round(wrapper.current?.clientWidth||920);const result=await api('POST','/reading/document',{sessionId,messageId:row.id,width});if(generation.current===current)setSurface(result);}
+        catch(e){if(generation.current===current)setError(e.message);}
+        finally{if(generation.current===current)setBusy(false);}
+      },[sessionId,row.id,row.html,row.head]);
+      useEffect(()=>{setSurface(null);if(row.interactive)void load();return()=>{generation.current++;};},[row.interactive,load]);
       useEffect(()=>{
-        let observer;const node=frame.current;
-        const resize=()=>{try{const height=Math.min(7000,Math.max(32,node.contentDocument.body.scrollHeight+20));node.style.height=height+'px';}catch{}};
+        if(row.interactive)return;const node=frame.current;let observer;
+        const resize=()=>{try{node.style.height=Math.min(14000,Math.max(40,node.contentDocument.body.scrollHeight+16))+'px';}catch{}};
         const ready=()=>{resize();try{observer=new ResizeObserver(resize);observer.observe(node.contentDocument.body);}catch{}};
-        node.addEventListener('load',ready);return()=>{node.removeEventListener('load',ready);observer?.disconnect();};
-      },[html]);
-      const doc='<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; base-uri \'none\'; form-action \'none\'"><style>:root{color-scheme:light dark}body{margin:0;padding:4px;font:15px/1.75 system-ui;overflow-wrap:anywhere}p{margin:.5em 0}pre{overflow:auto;white-space:pre-wrap}img{max-width:100%}table{border-collapse:collapse}td,th{border:1px solid #8886;padding:6px}details{padding:8px;border:1px solid #8884;border-radius:8px}</style>'+html;
-      return h('iframe',{ref:frame,title:'写作正文',sandbox:'allow-same-origin',srcDoc:doc,style:{border:0,width:'100%',display:'block',minHeight:40,colorScheme:'inherit'}});
+        node.addEventListener('load',ready);if(node.contentDocument?.readyState==='complete')ready();
+        return()=>{node.removeEventListener('load',ready);observer?.disconnect();};
+      },[row.interactive,row.html]);
+      const act=async input=>{
+        if(busy||!surface)return;const current=++generation.current;setBusy(true);setError('');
+        try{const value=await api('POST','/reading/document/action',{sessionId,messageId:row.id,token:surface.token,input});if(current===generation.current)setSurface(value);}
+        catch(e){if(current===generation.current)setError(e.message);}
+        finally{if(current===generation.current)setBusy(false);}
+      };
+      if(!row.interactive){
+        const doc='<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; base-uri \'none\'; form-action \'none\'"><style>:root{color-scheme:light dark}body{margin:0;padding:4px;font:15px/1.75 system-ui;overflow-wrap:anywhere}img{max-width:100%}pre{white-space:pre-wrap}details{padding:8px;border:1px solid #8884;border-radius:8px}</style>'+row.html;
+        return h('iframe',{ref:frame,title:'写作正文',sandbox:'allow-same-origin',srcDoc:doc,style:{border:0,width:'100%',minHeight:40,display:'block'}});
+      }
+      return h('section',{ref:wrapper,'data-reading-document':true,style:{minWidth:0}},[
+        h('div',{key:'toolbar',style:{display:'flex',alignItems:'center',gap:8,fontSize:12,marginBottom:8,flexWrap:'wrap'}},[
+          h('span',{key:'state',style:{opacity:.6}},busy?'正在加载美化…':'完整美化 · 点击画面中的控件操作'),
+          h('button',{key:'refresh',type:'button',disabled:busy,onClick:load},surface?'重新加载':'加载美化'),
+          surface?.issues?h('span',{key:'issues',style:{opacity:.65}},'部分脚本功能未完成'):null,
+          row.imagesFailed?h('span',{key:'images'},`${row.imagesFailed} 张插图暂未加载`):null,
+        ]),
+        error?h('div',{key:'error',role:'alert'},error):null,
+        surface?h('img',{key:'image',src:surface.image,alt:'完整美化的写作正文',tabIndex:0,style:{width:'100%',display:'block',cursor:busy?'wait':'auto',borderRadius:8},onClick:event=>{const box=event.currentTarget.getBoundingClientRect();void act({type:'click',x:(event.clientX-box.left)*surface.width/box.width,y:(event.clientY-box.top)*surface.height/box.height});},onKeyDown:event=>{const key=event.key===' '?'Space':event.key;if(['Enter','Tab','Escape','Backspace','Delete','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(key)){event.preventDefault();void act({type:'key',key});}}}):null,
+        h('details',{key:'text',style:{marginTop:6,fontSize:12}},[
+          h('summary',{key:'summary',style:{cursor:'pointer'}},'向美化页面输入文字'),
+          h('div',{key:'row',style:{display:'flex',gap:6,marginTop:8}},[
+            h('input',{key:'input',value:text,'aria-label':'美化页面输入文字',placeholder:'先点击画面中的输入框',style:{minWidth:0,flex:1},onChange:event=>setText(event.target.value)}),
+            h('button',{key:'send',disabled:busy||!text,onClick:()=>act({type:'text',text})},'输入'),
+            h('button',{key:'enter',disabled:busy,onClick:()=>act({type:'key',key:'Enter'})},'回车'),
+          ]),
+        ]),
+        surface?.truncated?h('div',{key:'truncated'},'此美化页面过长，当前展示前 10000 像素；原文仍完整保留。'):null,
+      ]);
     }
     function WritingReadingView({sessionId,useProjection,useSession}){
       const preset=useProjection('agentPreset'),running=useSession(s=>s.running);
@@ -1876,7 +1912,7 @@ window.__ModuleLoader__.load({
         !data?h('div',{key:'loading'},'读取正文…'):!data.messages.length?h('div',{key:'empty'},'在下方输入框发送消息，回复完成后会在这里显示。'):null,
         ...(data?.messages??[]).map(row=>h('article',{key:row.id,style:{minWidth:0,padding:row.role==='user'?'12px 16px':'8px 0',borderRadius:12,background:row.role==='user'?'var(--dsw-alias-bg-layer-1, #8881)':'transparent'}},[
           h('div',{key:'role',style:{fontSize:11,opacity:.6,marginBottom:5}},row.role==='user'?'你':'正文'),
-          raw?h('pre',{key:'raw',style:{whiteSpace:'pre-wrap',font:'inherit'}},row.original):row.hidden?h('details',{key:'hidden'},[h('summary',{key:'s'},'此消息已按显示规则隐藏'),h('pre',{key:'p',style:{whiteSpace:'pre-wrap',font:'inherit'}},row.original)]):h(ReadingFrame,{key:'html',html:row.html}),
+          raw?h('pre',{key:'raw',style:{whiteSpace:'pre-wrap',font:'inherit'}},row.original):row.hidden?h('details',{key:'hidden'},[h('summary',{key:'s'},'此消息已按显示规则隐藏'),h('pre',{key:'p',style:{whiteSpace:'pre-wrap',font:'inherit'}},row.original)]):h(ReadingFrame,{key:sessionId+':'+row.id,row,sessionId}),
         ])),
         running?h('div',{key:'running',style:{opacity:.6}},'正在生成，完成后更新正文…'):null,
       ]);

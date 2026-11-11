@@ -31,6 +31,7 @@ import { ExtensionStore } from './lib/extension-store.js';
 import { runTemplateBatch, runHelperScript } from './lib/extension-runtime.js';
 import { registerSessionHook } from './lib/session-hook.js';
 import {spresetOutput,spresetFinalRequest,spresetTool} from './lib/spreset.js';
+import {ReadingRuntime} from './lib/reading-runtime.js';
 import Ajv from 'ajv';
 import {estimateTokens} from './lib/budget.js';
 
@@ -128,6 +129,8 @@ export function apply(ctx, config = {}) {
   const extensionStore = new ExtensionStore(store.root);
   const scopes = new ExtensionScopes({store,extensionStore});
   const residentManager = new ResidentRuntime({store,extensionStore,scopes});
+  const readingRuntime=new ReadingRuntime(store.root);
+  ctx.effect(()=>()=>readingRuntime.dispose());
   ctx.effect(()=>()=>residentManager.dispose());
   const sessionDiagnostics = new Map();
   const sessionListDiagnostics = [];
@@ -393,6 +396,7 @@ export function apply(ctx, config = {}) {
     runtime: { runTemplateBatch, runHelperScript },
     residentManager,
     readSessionMessages,
+    readingRuntime,
     listSessions: collectSessions,
     getSessionInfo,
   });

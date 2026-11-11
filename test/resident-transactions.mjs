@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { GuideStore } from '../lib/store.js';
-import { ExtensionStore } from '../lib/extension-store.js';
+import { ExtensionStore, isResidentEnabled } from '../lib/extension-store.js';
 import { ResidentRuntime } from '../lib/resident-runtime.js';
 const root=await fs.mkdtemp(path.join(os.tmpdir(),'wg-resident-tx-'));const store=new GuideStore(root),extensionStore=new ExtensionStore(root);await store.ensure();
 let starts=0,closes=0;
@@ -20,6 +20,9 @@ class Browser {
 const manager=new ResidentRuntime({store,extensionStore,scopes:{resolve:async()=>({scripts:[],regex:[]})},factory:()=>new Browser()});
 const args={sessionId:'s',binding:{worldIds:[],worldSelection:'none'},card:null,conversation:[]};
 try {
+  assert.equal(isResidentEnabled({resident:{defaultEnabled:true}},'new'),true);
+  assert.equal(isResidentEnabled({resident:{defaultEnabled:true,disabledSessionIds:['off']}},'off'),false);
+  assert.equal(isResidentEnabled({resident:{defaultEnabled:false,enabled:true,sessionIds:['on']}},'on'),true);
   assert.equal(await manager.prepare(args),null);
   await extensionStore.updateSection('resident',{enabled:true,sessionIds:['s']});
   let tx=await manager.prepare(args);await tx.render(['a'],{});await tx.render(['a'],{});await tx.complete('ok');await tx.finish();

@@ -1329,10 +1329,14 @@ window.__ModuleLoader__.load({
             h('select',{value:presetId,onChange:e=>setPresetId(e.target.value)},[h('option',{value:''},'不选预设'),...state.presets.map(p=>h('option',{key:p.id,value:p.id},p.name))]),
             h('select',{value:cardId,onChange:e=>setCardId(e.target.value)},[h('option',{value:''},'不选角色卡'),...state.cards.map(c=>h('option',{key:c.id,value:c.id},c.name))]),
           ]):null,
+          !scopeSession&&!inspect?h('label',{className:'wg-hint'},[
+            h('input',{type:'checkbox',checked:state.resident?.defaultEnabled===true,disabled:busy,onChange:e=>act(()=>api('POST','/extensions/resident/default',{enabled:e.target.checked}))}),
+            ' 写作会话默认使用常驻运行器（各会话仍可单独关闭）',
+          ]):null,
           scopeSession&&!inspect?h('div',{className:'wg-card'},[
             h('h4',{},'常驻脚本运行（实验）'),
             h('div',{className:'wg-hint'},'使用独立浏览器保持脚本与事件；仅运行已启用来源的脚本。仍有未实现的界面API。外部模块固定缓存，脚本联网被阻止；世界书运行改动暂保存在会话副本。'),
-            button(state.resident?.sessionIds?.includes(scopeSession)?'关闭本会话常驻运行':'开启本会话常驻运行',()=>act(()=>api('POST','/extensions/resident',{sessionId:scopeSession,enabled:!state.resident?.sessionIds?.includes(scopeSession)}))),
+            ...(()=>{const enabled=!state.resident?.disabledSessionIds?.includes(scopeSession)&&(state.resident?.defaultEnabled===true||state.resident?.sessionIds?.includes(scopeSession));return [button(enabled?'关闭本会话常驻运行':'开启本会话常驻运行',()=>act(()=>api('POST','/extensions/resident',{sessionId:scopeSession,enabled:!enabled})))];})(),
           ]):null,
           h('div',{className:'wg-hint'},'附带条目直接来自所属素材，导入、替换或切换绑定后自动更新，不复制为全局扩展。修改素材会影响使用同一素材的其它会话。'),
         ]),

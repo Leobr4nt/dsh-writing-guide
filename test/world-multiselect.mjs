@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict';
+import {mkdtemp,rm} from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {Readable} from 'node:stream';
+import {GuideStore} from '../lib/store.js';
+import {BindingCache} from '../lib/session-bindings.js';
+import {createGuideRoutes} from '../lib/routes.js';
+import {createSessionHook} from '../lib/session-hook.js';
+const root=await mkdtemp(path.join(os.tmpdir(),'wg-world-multi-'));
+try{
+  const store=new GuideStore(root);await store.ensure();
+  for(const id of ['a','b','c'])await store.saveWorld({id,name:id,entries:[{uid:0,constant:true,content:`WORLD_${id.toUpperCase()}`,position:0}]});
+  await store.saveCard({id:'card',name:'Fixture',linkedWorldId:'a'});
+  await store.savePreset({id:'p',name:'Fixture',prompts:[{identifier:'worldInfoBefore',marker:true},{identifier:'chatHistory',marker:true}],prompt_order:[{order:[{identifier:'worldInfoBefore',enabled:true},{identifier:'chatHistory',enabled:true}]}]});
+  await store.saveSettings({maxChars:0,worldBudgetTokens:0,maxTokens:128});
+  const bindings=new BindingCache({defaultBinding:{presetId:'p',cardId:'card',worldSelection:'selected',worldIds:['a'],provider:'fixture',model:'synthetic'}});
+  const routes=createGuideRoutes({store,bindings,listModes:()=>[],lastState:()=>({})});
+  const save=async body=>{
+    const req=Readable.from([Buffer.from(JSON.stringify(body))]);req.method='POST';let value;
+    const res={setHeader(){},end(text){value=JSON.parse(text);}};
+    assert.equal(await routes(req,res,new URL('http://local/api/writing-guide/bindings')),true);
+    assert.equal(res.statusCode,200);return value;
+  };
+  await save({defaults:{worldSelection:'selected',worldIds:['a','b']}});
+  const reloaded=new BindingCache(await store.loadBindings());
+  assert.deepEqual(reloaded.defaults().worldIds,['a','b'],'all selected books survive save and reload');
+  let sent;
+  const hook=createSessionHook({store,diagnostics:new Map(),transport:async({plan})=>{sent=plan.messages.map(row=>row.content).join('\n');return {ok:true,finish:'stop',content:'ACK'};}});
+  const run=async binding=>{for await(const _ of hook({messages:[{id:'u',role:'user',source:{kind:'user'},content:[{type:'text',text:'synthetic'}]}]},'s',binding)){};};
+  await run(reloaded.defaults());
+  assert.equal(sent.split('WORLD_A').length-1,1,'a selected card-associated book appears only once');
+  assert.equal(sent.split('WORLD_B').length-1,1,'the second selected book reaches the actual transport');
+  assert.ok(!sent.includes('WORLD_C'),'unselected books stay excluded');
+  await save({sessionId:'s',binding:{...reloaded.defaults(),worldIds:['b','c']}});
+  const scoped=await store.loadBindings();assert.deepEqual(scoped.defaultBinding.worldIds,['a','b']);assert.deepEqual(scoped.bindings.s.worldIds,['b','c']);
+  await save({defaults:{worldSelection:'selected',worldIds:[]}});await run(new BindingCache(await store.loadBindings()).defaults());
+  assert.ok(sent.includes('WORLD_A'),'clearing global selection preserves the associated card book');
+  assert.ok(!sent.includes('WORLD_B')&&!sent.includes('WORLD_C'),'empty selected mode never silently switches to all books');
+  console.log('world-multiselect: persisted defaults/session choices, combined injection, card deduplication and clear passed');
+}finally{await rm(root,{recursive:true,force:true});}

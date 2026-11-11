@@ -83,6 +83,19 @@ window.__ModuleLoader__.load({
 .wg-field input, .wg-field select, .wg-field textarea { font: inherit; font-size: 12.5px; padding: 6px 8px; border-radius: 8px;
   border: 1px solid var(--dsw-alias-border-l1, #c9c3b6); background: var(--dsw-alias-bg-base, #fdfbf6); color: inherit; }
 .wg-field textarea { min-height: 90px; resize: vertical; line-height: 1.6; }
+.wg-world-picker { min-width: 0; border: 1px solid var(--dsw-alias-border-l1, #c9c3b6); border-radius: 8px; background: var(--dsw-alias-bg-base, #fdfbf6); }
+.wg-world-picker > summary { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; list-style: none; }
+.wg-world-picker > summary::-webkit-details-marker { display: none; }
+.wg-world-picker > summary::after { content: '⌄'; margin-left: auto; flex: none; }
+.wg-world-picker[open] > summary::after { content: '⌃'; }
+.wg-world-picker summary span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wg-world-picker-body { padding: 0 10px 10px; display: flex; flex-direction: column; gap: 8px; }
+.wg-world-picker-body input[type="search"] { box-sizing: border-box; width: 100%; }
+.wg-world-options { max-height: 240px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.wg-world-option { display: flex; gap: 8px; align-items: center; padding: 7px 4px; border-radius: 5px; cursor: pointer; }
+.wg-world-option:hover { background: var(--dsw-alias-bg-layer-2, #efe9df); }
+.wg-world-option input[type="checkbox"] { width: 16px; height: 16px; margin: 0; flex: none; accent-color: var(--dsw-alias-label-primary, #555); }
+.wg-world-option span { min-width: 0; overflow-wrap: anywhere; }
 .wg-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .wg-row > label { font-size: 11.5px; color: var(--dsw-alias-label-secondary, #6d675c); display: inline-flex; align-items: center; gap: 4px; }
 .wg-row input[type="number"], .wg-row input[type="text"], .wg-row select { font: inherit; font-size: 12px; padding: 4px 7px;
@@ -951,6 +964,32 @@ window.__ModuleLoader__.load({
 
     // ------------------------------------------------------------ 作品 / 生成
 
+    function WorldbookMultiSelect({ worlds, value, onChange, disabled }) {
+      const [query,setQuery]=useState('');
+      const selected=[...new Set(value??[])];
+      const known=new Map((worlds??[]).map(world=>[world.id,world]));
+      const choices=[...(worlds??[]),...selected.filter(id=>!known.has(id)).map(id=>({id,name:`已不存在：${id}`,missing:true}))];
+      const names=selected.map(id=>known.get(id)?.name||id);
+      const filtered=choices.filter(world=>(world.name||world.id).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+      return h('details',{className:'wg-world-picker','data-world-multiselect':true},[
+        h('summary',{key:'summary','aria-label':'指定世界书（可多选）',title:names.join('、')},[
+          h('b',{key:'count'},`已选 ${selected.length} 本`),h('span',{key:'names'},names.join('、')||'点击选择世界书'),
+        ]),
+        h('div',{key:'body',className:'wg-world-picker-body'},[
+          h('input',{key:'search',type:'search',value:query,placeholder:'搜索世界书','aria-label':'搜索世界书',onChange:event=>setQuery(event.target.value)}),
+          h('div',{key:'options',className:'wg-world-options',role:'group','aria-label':'可选世界书'},filtered.map(world=>h('label',{key:world.id,className:'wg-world-option'},[
+            h('input',{key:'check',type:'checkbox',checked:selected.includes(world.id),disabled,onChange:event=>onChange(event.target.checked?[...selected,world.id]:selected.filter(id=>id!==world.id))}),
+            h('span',{key:'label',className:world.missing?'wg-err':undefined},world.name||world.id),
+          ]))),
+          !filtered.length?h('div',{key:'empty',className:'wg-hint'},choices.length?'没有匹配的世界书':'请先导入世界书'):null,
+          h('div',{key:'actions',className:'wg-bar'},[
+            h('button',{key:'clear',type:'button',className:'wg-btn wg-btn-mini',disabled:disabled||!selected.length,onClick:()=>onChange([])},'清空选择'),
+            h('span',{key:'hint',className:'wg-hint'},'可勾选多本，点击下方“保存”后生效。'),
+          ]),
+        ]),
+      ]);
+    }
+
     /** 写作配置：默认值与会话绑定**分开编辑**，字段改动只进 draft，点保存才发请求。 */
     function ConfigPanel({ data, notify, fail, scopeSession, onScopeSessionChange }) {
       const [bindings, setBindings] = useState(null);
@@ -1084,13 +1123,10 @@ window.__ModuleLoader__.load({
             h('option', { key: 'none', value: 'none' }, '不用全局书（只用卡内书）'),
           ])),
         worldMode === 'selected'
-          ? h(Field, { key: 'w', label: '指定世界书' },
-            h('select', {
-              value: (draft.worldIds ?? [])[0] ?? '',
-              onChange: (event) => set({ worldSelection: 'selected', worldIds: event.target.value ? [event.target.value] : [] }),
-            }, [h('option', { key: '', value: '' }, '（未指定）')].concat(
-              (data.worlds ?? []).map((world) => h('option', { key: world.id, value: world.id }, world.name || world.id)),
-            )))
+          ? h(Field, { key: 'w', label: '指定世界书（可多选）' },[
+            h(WorldbookMultiSelect,{key:'picker',worlds:data.worlds??[],value:draft.worldIds??[],disabled:saving,onChange:worldIds=>set({worldSelection:'selected',worldIds})}),
+            h('span',{key:'hint',className:'wg-hint'},'角色卡关联的世界书会自动加入；与这里重复选择时只使用一次。'),
+          ])
           : null,
         h(Field, { key: 'c', label: '角色卡' },
           h('select', {

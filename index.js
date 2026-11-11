@@ -1,3 +1,5 @@
+import { forgetExtensionOwner } from './lib/scope-cleanup.js';
+import { ExtensionScopes } from './lib/extension-scopes.js';
 /**
  * 写作指导 —— Host 半边。
  *
@@ -120,6 +122,7 @@ export function apply(ctx, config = {}) {
   const store = new GuideStore(config.dataDir || DEFAULT_DATA_DIR);
   const bindingCache = new BindingCache({ defaultBinding: {}, bindings: {} });
   const extensionStore = new ExtensionStore(store.root);
+  const scopes = new ExtensionScopes({store,extensionStore});
   const sessionDiagnostics = new Map();
   const sessionListDiagnostics = [];
   const logger = typeof ctx.logger === 'function' ? ctx.logger('writing-guide') : null;
@@ -240,6 +243,7 @@ export function apply(ctx, config = {}) {
     agentPresets: service('agentPresets'),
     llm: service('llm'),
     extensionStore,
+    scopes,
     runTemplateBatch,
     isEnabled: () => bindingCache.isEnabled(),
   }));
@@ -568,7 +572,7 @@ export function apply(ctx, config = {}) {
           if (!id) return { ok: false, detail: '需要 id' };
           const had = input?.payload?.kind === 'preset' ? await store.getPreset(id) : await store.getWorld(id);
           if (!had) return { ok: false, detail: `没有这个 id：${id}` };
-          if (input?.payload?.kind === 'preset') await store.deletePreset(id);
+          if (input?.payload?.kind === 'preset') { await forgetExtensionOwner(extensionStore,'preset',id);await store.deletePreset(id); }
           else await store.deleteWorld(id);
           return { ok: true, detail: `已删除 ${id}` };
         }

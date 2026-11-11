@@ -952,11 +952,11 @@ window.__ModuleLoader__.load({
     // ------------------------------------------------------------ 作品 / 生成
 
     /** 写作配置：默认值与会话绑定**分开编辑**，字段改动只进 draft，点保存才发请求。 */
-    function ConfigPanel({ data, notify, fail }) {
+    function ConfigPanel({ data, notify, fail, scopeSession, onScopeSessionChange }) {
       const [bindings, setBindings] = useState(null);
       const [cards, setCards] = useState([]);
       const [sessions, setSessions] = useState([]);
-      const [target, setTarget] = useState('');
+      const target=scopeSession; const setTarget=onScopeSessionChange;
       const [draft, setDraft] = useState(null);
       const [dirty, setDirty] = useState(false);
       const [saving, setSaving] = useState(false);
@@ -1259,52 +1259,112 @@ window.__ModuleLoader__.load({
     }
 
     /** 扩展：正则 / 模板 / 助手（三分区，明确列 unsupported）。 */
-    function ExtensionsPanel({ data, notify, fail }) {
-      const [state,setState]=useState(null),[section,setSection]=useState('regex');
-      const [sessions,setSessions]=useState([]),[sessionId,setSessionId]=useState('');
-      const [presetId,setPresetId]=useState(''),[input,setInput]=useState(''),[result,setResult]=useState('');
-      const [mode,setMode]=useState('send'),[placement,setPlacement]=useState(2),[depth,setDepth]=useState('0');
-      const [json,setJson]=useState(''),[editId,setEditId]=useState(''),[busy,setBusy]=useState(false);
-      const [template,setTemplate]=useState({enabled:false,allowedPresetIds:[]});
+    function ExtensionsPanel({ data, notify, fail, scopeSession, onScopeSessionChange }) {
+      const [section,setSection]=useState('regex'),[state,setState]=useState(null),[sessions,setSessions]=useState([]);
+      const [inspect,setInspect]=useState(false),[presetId,setPresetId]=useState(''),[cardId,setCardId]=useState('');
+      const [sourceType,setSourceType]=useState('global'),[editor,setEditor]=useState(null),[text,setText]=useState(''),[result,setResult]=useState('');
+      const [busy,setBusy]=useState(false),[template,setTemplate]=useState({enabled:false,allowedPresetIds:[]});
+      const [previewText,setPreviewText]=useState(''),[mode,setMode]=useState('send'),[placement,setPlacement]=useState(2),[depth,setDepth]=useState(0);
+      const selection={sessionId:scopeSession,inspect,presetId,cardId};
+      const requestSeq=useRef(0);
       const load=useCallback(async()=>{
-        try {const value=await call('/extensions');setState(value);setTemplate(value.template);const s=await call('/sessions');setSessions((Array.isArray(s.sessions)?s.sessions:[]).filter(x=>x.writer||x.preset==='writer'));}catch(e){fail(e);}
-      },[fail]);
-      useEffect(()=>{load();},[load]);
-      const act=async(fn,refresh=false)=>{setBusy(true);try{const r=await fn();setResult(JSON.stringify(r,null,2));if(refresh)await load();notify('操作完成');}catch(e){fail(e);}finally{setBusy(false);}};
-      if(!state)return h('div',{},'读取扩展配置…');
-      const button=(label,fn,disabled=false)=>h('button',{className:'wg-btn',disabled:busy||disabled,onClick:()=>act(fn,true)},label);
-      const fileInput=()=>h('label',{className:'wg-btn'},['选择 JSON 文件',h('input',{type:'file',accept:'.json,application/json',style:{display:'none'},onChange:async e=>{try{setJson(await e.target.files[0].text());setEditId('');}catch(x){fail(x);}e.target.value='';}})]);
-      const output=h('pre',{className:'wg-pre',style:{whiteSpace:'pre-wrap',maxHeight:350,overflow:'auto'}},result);
-      const presetOptions=[h('option',{key:'none',value:''},'（仅全局正则）'),...(data.presets??[]).map(p=>h('option',{key:p.id,value:p.id},p.name))];
+        const seq=++requestSeq.current;
+        try {
+          const query=new URLSearchParams({sessionId:scopeSession,inspect:String(inspect),presetId,cardId});
+          const value=await call('/extensions/scopes?'+query);
+          if(seq!==requestSeq.current)return;
+          setState(value);setTemplate(value.template);
+          const listing=await call('/sessions');if(seq===requestSeq.current)setSessions((listing.sessions??[]).filter(s=>s.writer||s.preset==='writer'));
+        } catch(e){if(seq===requestSeq.current)fail(e);}
+      },[scopeSession,inspect,presetId,cardId,fail]);
+      useEffect(()=>{setState(null);setEditor(null);setText('');setResult('');load();},[load]);
+      useEffect(()=>{
+        if(editor||busy||section==='template')return;
+        const refresh=()=>{if(document.visibilityState!=='hidden')load();};
+        const timer=setInterval(refresh,5000);window.addEventListener('focus',refresh);
+        return()=>{clearInterval(timer);window.removeEventListener('focus',refresh);};
+      },[load,editor,busy,section]);
+      if(!state)return h('div',{},'读取来源扩展…');
+      const kind=section==='helper'?'helper':'regex';
+      const source=state.sources.find(s=>s.type===sourceType)??state.sources[0];
+      const scope={type:source.type,id:source.id};
+      const items=kind==='regex'?source.regex:source.scripts;
+      const rev=kind==='regex'?source.regexRevision:source.helperRevision;
+      const allowed=kind==='regex'?source.regexAllowed:source.helperAllowed;
+      const labels={global:'全局',preset:'预设',character:'角色卡'};
+      const act=async(fn,refresh=true)=>{setBusy(true);try{const value=await fn();setResult(JSON.stringify(value,null,2));setEditor(null);setText('');if(refresh)await load();notify('操作完成');}catch(e){fail(e);}finally{setBusy(false);}};
+      const button=(name,fn,disabled=false)=>h('button',{className:'wg-btn',disabled:busy||disabled,onClick:fn},name);
+      const saveItems=next=>act(()=>api('POST','/extensions/scope/save',{scope,kind,revision:rev,items:next}));
+      const editAt=(path,change)=>{const next=JSON.parse(JSON.stringify(items));let list=next;for(const index of path.slice(0,-1))list=list[index].scripts;change(list,path.at(-1));saveItems(next);};
+      const download=()=>{
+        const clean=node=>{const out=JSON.parse(JSON.stringify(node));if(out.type==='folder')out.scripts=(out.scripts??[]).map(clean);else if(kind==='helper'){if(out.export_with?.data===false)out.data={};if(out.export_with?.button===false&&out.button)out.button.buttons=[];}return out;};
+        const blob=new Blob([JSON.stringify(items.map(clean),null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=source.type+'-'+source.id+'-'+kind+'.json';a.click();URL.revokeObjectURL(url);
+      };
+      const renderItems=(list,parent=[],parentEnabled=true)=>list.map((item,index)=>{
+        const path=[...parent,index],folder=kind==='helper'&&item.type==='folder';
+        const enabled=kind==='regex'?!item.disabled:item.enabled===true,effective=allowed&&parentEnabled&&enabled;
+        return h('div',{key:path.join('.'),className:'wg-card'},[
+          h('div',{className:'wg-bar'},[
+            h('b',{},(folder?'📁 ':'')+(item.scriptName??item.name??'未命名')),
+            h('span',{className:'wg-hint'},effective?'已启用':!enabled?'条目停用':!parentEnabled?'文件夹停用':'来源未启用'),
+            button(enabled?'停用条目':'启用条目',()=>editAt(path,(xs,i)=>{xs[i]={...xs[i],...(kind==='regex'?{disabled:enabled}:{enabled:!enabled})};})),
+            button('编辑',()=>{setEditor({scope,kind,revision:rev,path,items:JSON.parse(JSON.stringify(items))});setText(JSON.stringify(item,null,2));}),
+            button('上移',()=>editAt(path,(xs,i)=>{[xs[i-1],xs[i]]=[xs[i],xs[i-1]];}),index===0),
+            button('下移',()=>editAt(path,(xs,i)=>{[xs[i+1],xs[i]]=[xs[i],xs[i+1]];}),index===list.length-1),
+            button('删除',()=>{if(window.confirm('从所属'+labels[source.type]+'删除此条目？'))editAt(path,(xs,i)=>xs.splice(i,1));}),
+            kind==='helper'&&!folder?button('手动运行',()=>act(()=>api('POST','/extensions/scope/run',{scope,revision:rev,scriptId:item.id,sessionId:scopeSession})),!effective||!scopeSession||inspect):null,
+          ]),folder?h('div',{style:{paddingLeft:16}},renderItems(item.scripts??[],path,parentEnabled&&enabled)):null,
+        ]);
+      });
       return h('div',{className:'wg-body'},[
-        h('div',{key:'tabs',className:'wg-bar'},[['regex','正则'],['template','提示词模板'],['helper','酒馆助手']].map(([id,label])=>h('button',{key:id,className:'wg-btn'+(section===id?' wg-btn-primary':''),onClick:()=>{setSection(id);setJson('');setEditId('');setResult('');}},label))),
-        section==='regex'?h('div',{key:'regex',className:'wg-card'},[
-          h('h4',{},'正则管理'),h('div',{className:'wg-hint'},'按全局 → 预设 → 角色顺序处理发送副本。原始会话保留。显示规则目前只预览。导入后需手动启用。'),
-          ...state.regex.map(s=>h('div',{key:s.id,className:'wg-bar'},[h('span',{},s.scriptName),h('span',{className:'wg-hint'},s.disabled?'已停用':'已启用'),button(s.disabled?'启用':'停用',()=>api('POST',`/extensions/regex/${encodeURIComponent(s.id)}/enabled`,{enabled:s.disabled})),h('button',{className:'wg-btn',onClick:()=>{setJson(JSON.stringify(s,null,2));setEditId(s.id);}},'编辑')])),
-          h('div',{className:'wg-bar'},[fileInput(),h('button',{className:'wg-btn',onClick:()=>{setEditId('');setJson(JSON.stringify({scriptName:'新正则',findRegex:'/旧词/g',replaceString:'新词',placement:[2],promptOnly:true,markdownOnly:false,disabled:true,minDepth:null,maxDepth:null,trimStrings:[],substituteRegex:0},null,2));}},'新建')]),
-          h(Field,{label:'正则 JSON（可编辑完整字段）'},h('textarea',{value:json,onChange:e=>setJson(e.target.value)})),
-          button(editId?'保存修改':'导入正则（默认停用）',()=>editId?api('POST','/extensions/regex',{script:{...JSON.parse(json),id:editId}}):api('POST','/extensions/regex/import',{data:JSON.parse(json)}),!json.trim()),
-          h('h4',{},'预览'),h(Field,{label:'包含预设的内置正则'},h('select',{value:presetId,onChange:e=>setPresetId(e.target.value)},presetOptions)),
-          h('div',{className:'wg-bar'},[h('label',{},['阶段 ',h('select',{value:mode,onChange:e=>setMode(e.target.value)},[h('option',{value:'send'},'发送给模型'),h('option',{value:'display'},'界面显示（仅预览）')])]),h('label',{},['消息 ',h('select',{value:placement,onChange:e=>setPlacement(Number(e.target.value))},[h('option',{value:1},'用户'),h('option',{value:2},'助手')])]),h('label',{},['深度 ',h('input',{type:'number',min:0,value:depth,onChange:e=>setDepth(e.target.value),style:{width:70}})])]),
-          h(Field,{label:'测试文本'},h('textarea',{value:input,onChange:e=>setInput(e.target.value)})),
-          button('运行正则预览',()=>api('POST','/extensions/regex/preview',{text:input,presetId,mode,placement,depth:Number(depth)})),output,
+        h('div',{key:'tabs',className:'wg-bar'},[['regex','正则'],['template','提示词模板'],['helper','酒馆助手']].map(([id,name])=>h('button',{key:id,className:'wg-btn'+(section===id?' wg-btn-primary':''),disabled:busy,onClick:()=>{setSection(id);setEditor(null);setText('');setResult('');}},name))),
+        h('div',{key:'context',className:'wg-card'},[
+          ...(state.missing??[]).map((m,i)=>h('div',{key:'missing'+i,className:'wg-err'},m)),
+          h(Field,{label:'跟随写作会话的预设和角色卡'},h('select',{value:scopeSession,disabled:busy,onChange:e=>{onScopeSessionChange(e.target.value);setInspect(false);}},[h('option',{value:''},'默认写作配置'),...sessions.map(s=>h('option',{key:s.id,value:s.id},s.title||s.id))])),
+          h('label',{},[h('input',{type:'checkbox',checked:inspect,disabled:busy,onChange:e=>setInspect(e.target.checked)}),' 浏览其它素材（不改变会话绑定）']),
+          inspect?h('div',{className:'wg-bar'},[
+            h('select',{value:presetId,onChange:e=>setPresetId(e.target.value)},[h('option',{value:''},'不选预设'),...state.presets.map(p=>h('option',{key:p.id,value:p.id},p.name))]),
+            h('select',{value:cardId,onChange:e=>setCardId(e.target.value)},[h('option',{value:''},'不选角色卡'),...state.cards.map(c=>h('option',{key:c.id,value:c.id},c.name))]),
+          ]):null,
+          h('div',{className:'wg-hint'},'附带条目直接来自所属素材，导入、替换或切换绑定后自动更新，不复制为全局扩展。修改素材会影响使用同一素材的其它会话。'),
+        ]),
+        section!=='template'?h('div',{key:'sources',className:'wg-bar'},state.sources.map(s=>h('button',{key:s.key,className:'wg-btn'+(s.type===source.type?' wg-btn-primary':''),disabled:busy,onClick:()=>{setSourceType(s.type);setEditor(null);setText('');}},labels[s.type]+' · '+s.name+' ('+(kind==='regex'?s.regex.length:s.scripts.length)+')'))):null,
+        section!=='template'?h('div',{key:'owner',className:'wg-card'},[
+          h('h4',{},labels[source.type]+'：'+source.name),
+          kind==='regex'&&source.type==='global'?h('div',{className:'wg-hint'},'全局正则按各条目启停状态执行。'):button(allowed?'停用此来源':'启用此来源',()=>act(()=>api('POST','/extensions/scope/allowed',{scope,kind,enabled:!allowed}))),
+          h('div',{className:'wg-hint'},kind==='regex'?'执行顺序：全局 → 当前预设 → 当前角色卡。来源开关与单条开关分别生效。':'来源、文件夹、脚本三层开关分别生效。运行器仍限基础API和手动执行；完整宿主事件、DOM、网络尚未支持。'),
+          ...renderItems(items),!items.length?h('div',{className:'wg-hint'},'该来源暂无附带条目。'):null,
+          h('div',{className:'wg-bar'},[
+            button('新建',()=>{setEditor({scope,kind,revision:rev,path:null,items:JSON.parse(JSON.stringify(items))});setText(JSON.stringify(kind==='regex'?{scriptName:'新正则',findRegex:'/旧词/g',replaceString:'新词',placement:[2],promptOnly:true,disabled:false,trimStrings:[],minDepth:null,maxDepth:null}:{type:'script',name:'新脚本',enabled:false,content:'console.log(getVariables());',data:{},button:{enabled:true,buttons:[]}},null,2));}),
+            kind==='helper'?button('新建文件夹',()=>saveItems([...items,{type:'folder',name:'新文件夹',enabled:true,scripts:[]}])):null,
+            button('导出此来源',download),
+            h('label',{className:'wg-btn'},['选择 JSON 文件',h('input',{type:'file',accept:'.json,application/json',style:{display:'none'},disabled:busy,onChange:async e=>{try{setEditor({scope,kind,revision:rev,import:true});setText(await e.target.files[0].text());}catch(x){fail(x);}e.target.value='';}})]),
+          ]),
+          h(Field,{label:'条目 JSON / 导入内容'},h('textarea',{value:text,onChange:e=>{setText(e.target.value);if(!editor)setEditor({scope,kind,revision:rev,import:true});}})),
+          button(editor?.import?'导入到所选来源':'保存到所属素材',()=>act(async()=>{
+            if(!editor)throw Error('请先选择编辑或导入');const item=JSON.parse(text);
+            if(editor.import||editor.path===null)return api('POST','/extensions/scope/import',{...editor,data:item});
+            const next=editor.items;let list=next;for(const i of editor.path.slice(0,-1))list=list[i].scripts;list[editor.path.at(-1)]=item;
+            return api('POST','/extensions/scope/save',{scope:editor.scope,kind:editor.kind,revision:editor.revision,items:next});
+          }),!text.trim()),
+        ]):null,
+        section==='regex'?h('div',{key:'preview',className:'wg-card'},[
+          h('h4',{},'预览当前来源组合（遵循各来源和条目开关）'),
+          h('div',{className:'wg-bar'},[
+            h('select',{value:mode,onChange:e=>setMode(e.target.value)},[h('option',{value:'send'},'发送给模型'),h('option',{value:'display'},'显示预览（不改变聊天正文）')]),
+            h('select',{value:placement,onChange:e=>setPlacement(Number(e.target.value))},[h('option',{value:1},'用户消息'),h('option',{value:2},'助手消息')]),
+            h('input',{type:'number',min:0,value:depth,onChange:e=>setDepth(Number(e.target.value)),style:{width:80},'aria-label':'消息深度'}),
+          ]),h('textarea',{value:previewText,onChange:e=>setPreviewText(e.target.value),'aria-label':'正则测试文本'}),
+          button('运行预览',()=>act(()=>api('POST','/extensions/scope/preview',{...selection,text:previewText,mode,placement,depth}),false)),
         ]):null,
         section==='template'?h('div',{key:'template',className:'wg-card'},[
-          h('h4',{},'提示词模板（EJS）'),h('div',{className:'wg-hint'},'支持表达式、条件、循环和 local/message/cache 变量。只处理已授权预设的配置材料，不执行聊天历史中的代码；生成成功后保存变量。全局变量、世界书指令注入及输出模板尚未支持。'),
-          h('label',{},[h('input',{type:'checkbox',checked:template.enabled,onChange:e=>setTemplate({...template,enabled:e.target.checked})}),' 启用提示词模板']),
-          ...(data.presets??[]).map(p=>h('label',{key:p.id},[h('input',{type:'checkbox',checked:template.allowedPresetIds.includes(p.id),onChange:e=>setTemplate({...template,allowedPresetIds:e.target.checked?[...template.allowedPresetIds,p.id]:template.allowedPresetIds.filter(id=>id!==p.id)})}),' '+p.name])),
-          button('保存模板设置',()=>api('POST','/extensions/template',template)),
-          h(Field,{label:'模板预览（不保存变量）'},h('textarea',{value:input,placeholder:'<% setvar("章节", 1); %>第 <%- getvar("章节") %> 章',onChange:e=>setInput(e.target.value)})),
-          button('运行模板预览',()=>api('POST','/extensions/template/preview',{text:input})),output,
+          h('h4',{},'提示词模板（现有 EJS 基础兼容）'),h('div',{className:'wg-hint'},'此处保留现有预设启用范围；完整酒馆模板选项与事件尚未移植。'),
+          h('label',{},[h('input',{type:'checkbox',checked:template.enabled,onChange:e=>setTemplate({...template,enabled:e.target.checked})}),'启用']),
+          ...state.presets.map(p=>h('label',{key:p.id},[h('input',{type:'checkbox',checked:template.allowedPresetIds.includes(p.id),onChange:e=>setTemplate({...template,allowedPresetIds:e.target.checked?[...template.allowedPresetIds,p.id]:template.allowedPresetIds.filter(id=>id!==p.id)})}),p.name])),
+          button('保存模板设置',()=>act(()=>api('POST','/extensions/template',template))),
+          h('textarea',{value:previewText,onChange:e=>setPreviewText(e.target.value),'aria-label':'EJS模板预览'}),button('运行模板预览',()=>act(()=>api('POST','/extensions/template/preview',{text:previewText}),false)),
         ]):null,
-        section==='helper'?h('div',{key:'helper',className:'wg-card'},[
-          h('h4',{},'酒馆助手 · 基础脚本'),h('div',{className:'wg-hint'},'支持 chat/script 变量、只读消息列表和同步/立即完成的异步代码。脚本只在手动点击时运行；网络、DOM、宿主事件、斜杠命令和第三方 UI 库尚未支持。'),
-          button(state.helper.enabled?'关闭助手':'启用助手',()=>api('POST','/extensions/helper/enabled',{enabled:!state.helper.enabled})),
-          h(Field,{label:'运行目标写作会话'},h('select',{value:sessionId,onChange:e=>setSessionId(e.target.value)},[h('option',{value:''},'请选择'),...sessions.map(s=>h('option',{key:s.id,value:s.id},s.title||s.id))])),
-          ...state.helper.scripts.map(s=>h('div',{key:s.id,className:'wg-bar'},[h('span',{},s.name),button(s.enabled?'停用':'启用',()=>api('POST',`/extensions/helper/${encodeURIComponent(s.id)}/enabled`,{enabled:!s.enabled})),button('手动运行',()=>api('POST','/extensions/helper/run',{scriptId:s.id,sessionId}),!s.enabled||!state.helper.enabled||!sessionId)])),
-          fileInput(),h(Field,{label:'脚本 JSON（单脚本、数组、文件夹或含脚本的预设）'},h('textarea',{value:json,onChange:e=>setJson(e.target.value)})),button('导入脚本（默认停用）',()=>api('POST','/extensions/helper/import',{data:JSON.parse(json)}),!json.trim()),output,
-        ]):null,
-        h('div',{key:'limits',className:'wg-card'},[h('h4',{},'兼容范围'),...(state.unsupported??[]).map((x,i)=>h('div',{key:i,className:'wg-hint'},x))]),
+        h('pre',{key:'result',className:'wg-pre',style:{whiteSpace:'pre-wrap',maxHeight:320,overflow:'auto'}},result),
       ]);
     }
 
@@ -1511,6 +1571,7 @@ window.__ModuleLoader__.load({
     // ------------------------------------------------------------------ shell
     function App() {
       const [tab, setTab] = useState('config');
+      const [scopeSession,setScopeSession]=useState('');
       const [data, setData] = useState(null);
       const [error, setError] = useState('');
       const [message, setMessage] = useState('');
@@ -1573,11 +1634,11 @@ window.__ModuleLoader__.load({
                   : tab === 'presets'
                   ? h(PresetsPanel, { key: 'presets', data, reload, notify, fail })
                   : tab === 'config'
-                  ? h(ConfigPanel, { key: 'config', data, reload, notify, fail })
+                  ? h(ConfigPanel, { key: 'config', data, reload, notify, fail,scopeSession,onScopeSessionChange:setScopeSession })
                   : tab === 'cards'
                   ? h(CardsPanel, { key: 'cards', data, reload, notify, fail })
                   : tab === 'ext'
-                  ? h(ExtensionsPanel, { key: 'ext', data, notify, fail })
+                  ? h(ExtensionsPanel, { key: 'ext', data, notify, fail,scopeSession,onScopeSessionChange:setScopeSession })
                   : h(WorksPanel, { key: 'works', data, reload, notify, fail }),
         ]),
       ]);

@@ -1,0 +1,47 @@
+import assert from 'node:assert/strict';
+import {mkdtemp,rm} from 'node:fs/promises';import path from 'node:path';import os from 'node:os';import {Readable} from 'node:stream';
+import {GuideStore} from '../lib/store.js';import {ExtensionStore} from '../lib/extension-store.js';import {ExtensionScopes} from '../lib/extension-scopes.js';
+import {createGuideRoutes} from '../lib/routes.js';import {normalizeCard,toStCard} from '../lib/cards.js';import {toStPreset} from '../lib/export.js';import {createSessionHook} from '../lib/session-hook.js';import {runHelperScript} from '../lib/extension-runtime.js';
+const dir=await mkdtemp(path.join(os.tmpdir(),'wg-scopes-'));const store=new GuideStore(dir);await store.ensure();const ext=new ExtensionStore(dir),scopes=new ExtensionScopes({store,extensionStore:ext});
+const rx=(name,from,to)=>({id:'same',scriptName:name,findRegex:from,replaceString:to,placement:[1],promptOnly:true,disabled:false,minDepth:null,maxDepth:null});
+const helper={type:'script',id:'same',name:'script',enabled:true,content:'return getVariables({type:"script"});',data:{owner:'preset'},button:{enabled:true,buttons:[{name:'X',visible:true}]},export_with:{data:false,button:false},unknown:'preserve'};
+const p={id:'p',name:'P',prompts:[{identifier:'main',content:'Plain'},{identifier:'chatHistory',marker:true}],extensions:{unknown:1,regex_scripts:[rx('P','B','C')],tavern_helper:{scripts:[helper],variables:{keep:1},unknown:2}}};
+await store.savePreset(p);await store.savePreset({...p,id:'q',name:'Q',extensions:{regex_scripts:[rx('Q','B','D')],tavern_helper:{scripts:[{...helper,data:{owner:'Q'}}]}}});
+await store.saveCard(normalizeCard({id:'c',spec:'chara_card_v2',data:{name:'C',extensions:{regex_scripts:[rx('C','C','E')],tavern_helper:{scripts:[{type:'folder',id:'folder',enabled:false,name:'Folder',scripts:[{...helper,data:{owner:'card'}}]}],variables:{keep:'card'}}}}}));
+await ext.upsert(rx('G','A','B'));
+await store.saveBindings({defaultBinding:{presetId:'p',cardId:'c',worldIds:[],provider:'test',model:'m'},bindings:{s:{presetId:'p',cardId:'c',worldIds:[],provider:'test',model:'m'},t:{presetId:'q',cardId:'',worldIds:[],provider:'test',model:'m'}}});
+const route=createGuideRoutes({store,extensionStore:ext,scopes,runtime:{runHelperScript},listSessions:async()=>({rows:[{id:'s',preset:'writer'},{id:'t',preset:'writer'}]}),readSessionMessages:async()=>({writer:true,messages:[]}),listModes:()=>[],lastState:()=>({})});
+async function call(url,body,method='POST'){let value;const req=Readable.from(body===undefined?[]:[Buffer.from(JSON.stringify(body))]);req.method=method;const res={setHeader(){},end(v){value={status:this.statusCode,...JSON.parse(v)}}};assert.ok(await route(req,res,new URL('http://local/api/writing-guide'+url)));return value;}
+// Exercise the actual user-facing whole-material import endpoints, not just store.save.
+const importedPreset={...p,name:'P',extensions:p.extensions};
+assert.equal((await call('/preset/import',{name:'p.json',idPrefix:'p',data:importedPreset})).status,200);
+assert.equal((await call('/cards/import',{card:{id:'c',spec:'chara_card_v2',data:{name:'C',extensions:(await store.getCard('c')).extensions}}})).status,200);
+let listing=await call('/extensions/scopes?sessionId=s',undefined,'GET');assert.equal(listing.status,200);assert.equal(listing.sources.length,3);assert.equal(listing.sources[1].scripts[0].id,'same');assert.equal(listing.sources[1].scripts[0].enabled,true);assert.equal(listing.sources[1].helperAllowed,false);assert.equal(listing.sources[1].regexAllowed,false);
+assert.equal((await ext.load()).helper.scripts.length,0,'embedded scripts never copied to global');
+let preview=await call('/extensions/scope/preview',{sessionId:'s',text:'A',placement:1,mode:'send'});assert.equal(preview.result.output,'B');
+for(const type of ['preset','character'])await call('/extensions/scope/allowed',{scope:{type,id:type==='preset'?'p':'c'},kind:'regex',enabled:true});
+preview=await call('/extensions/scope/preview',{sessionId:'s',text:'A',placement:1,mode:'send'});assert.equal(preview.result.output,'E');
+assert.equal((await call('/extensions/scope/preview',{sessionId:'t',text:'A',placement:1,mode:'send'})).result.output,'B');
+await scopes.setAllowed({type:'preset',id:'q',kind:'regex',enabled:true});assert.equal((await call('/extensions/scope/preview',{sessionId:'t',text:'A',placement:1,mode:'send'})).result.output,'D');
+listing=await call('/extensions/scopes?sessionId=s',undefined,'GET');const ps=listing.sources[1],card=listing.sources[2];
+const next=[{...ps.regex[0],replaceString:'CC'}];assert.equal((await call('/extensions/scope/save',{scope:ps,kind:'regex',revision:ps.regexRevision,items:next})).status,200);
+assert.equal((await store.getPreset('p')).extensions.regex_scripts[0].replaceString,'CC');assert.equal((await store.getPreset('p')).extensions.unknown,1);assert.deepEqual((await store.getCard('c')).extensions.regex_scripts,card.regex);assert.equal((await ext.load()).regex.global.length,1);
+assert.equal((await call('/extensions/scope/save',{scope:ps,kind:'regex',revision:ps.regexRevision,items:[]})).status,409);
+await store.savePreset(p);listing=await call('/extensions/scopes?sessionId=s',undefined,'GET');assert.equal(listing.sources[1].regex.length,1);assert.equal(listing.sources[1].scripts.length,1);
+assert.equal(toStPreset(await store.getPreset('p')).extensions.tavern_helper.scripts[0].data.owner,undefined);assert.deepEqual((await store.getPreset('p')).extensions.tavern_helper.scripts[0].data,{owner:'preset'});
+assert.equal(toStCard(await store.getCard('c')).data.extensions.tavern_helper.scripts[0].scripts[0].button.buttons.length,0);
+await scopes.setAllowed({type:'preset',id:'p',kind:'helper',enabled:true});await scopes.setAllowed({type:'character',id:'c',kind:'helper',enabled:true});
+listing=await call('/extensions/scopes?sessionId=s',undefined,'GET');const h=listing.sources[1];let run=await call('/extensions/scope/run',{sessionId:'s',scope:h,scriptId:'same',revision:h.helperRevision});assert.equal(run.status,200);assert.equal(run.result.owner,'preset');
+const globalSource=listing.sources[0];
+const importedFolder=await call('/extensions/scope/import',{scope:globalSource,kind:'helper',revision:globalSource.helperRevision,data:{type:'folder',id:'f-import',name:'Imported folder',enabled:true,scripts:[helper]}});
+assert.equal(importedFolder.status,200);const importedGlobal=(await ext.load()).helper.scripts[0];assert.equal(importedGlobal.type,'folder');assert.equal(importedGlobal.enabled,false);assert.equal(importedGlobal.scripts[0].enabled,true);
+const c=listing.sources[2];assert.equal((await call('/extensions/scope/run',{sessionId:'s',scope:c,scriptId:'same',revision:c.helperRevision})).status,400,'disabled folder prevents execution');
+assert.equal((await call('/extensions/scope/run',{sessionId:'t',scope:h,scriptId:'same',revision:h.helperRevision})).status,400,'foreign source never executes');
+await scopes.setAllowed({type:'global',id:'global',kind:'helper',enabled:false});assert.equal((await scopes.resolve({presetId:'p'})).scripts.length,1,'global gate does not disable preset scripts');
+await scopes.replace({type:'character',id:'c',kind:'helper',items:[{...c.scripts[0],enabled:true}]});assert.equal((await scopes.resolve({presetId:'p',cardId:'c'})).scripts.length,2);
+assert.notEqual((await scopes.resolve({presetId:'p',cardId:'c'})).scripts[0].key,(await scopes.resolve({presetId:'p',cardId:'c'})).scripts[1].key);
+await store.saveSettings({enabled:true,includeWorlds:false,contextWindow:10000,maxTokens:100});let sent;const hook=createSessionHook({store,extensionStore:ext,scopes,diagnostics:new Map(),transport:async({plan})=>{sent=plan.messages;return {ok:true,content:'OK',finish:'stop'}}});
+for await(const c of hook({messages:[{id:'u1',role:'user',source:{kind:'user'},content:[{type:'text',text:'A'}]}]},'s',{presetId:'p',cardId:'c',worldIds:[],worldSelection:'none',provider:'test',model:'m'})){}
+assert.ok(sent.some(m=>m.content==='E'));
+await store.deletePreset('p');assert.equal((await scopes.list({presetId:'p',cardId:'c'})).some(x=>x.type==='preset'),false);
+console.log('scope-integration: auto discovery, owner writeback, switch/gates, revisions, export and real generation hook passed');await rm(dir,{recursive:true,force:true});

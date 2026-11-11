@@ -145,3 +145,11 @@ npm test
 PNG上限20MB，解码后的JSON上限12MB；PNG导入端点允许30MB的JSON/base64请求体。原始character_book保留在rawCharacterBook和世界书originalData中，规范化/导出保留扩展字段与未知字段，不把保存成功等同于所有MVU/模板扩展已实现。
 
 行为参照SillyTavern world-info.js的importEmbeddedWorldInfo、convertCharacterBook、getCharacterLore，以及characters.js的convertWorldInfoToCharacterBook。自动执行导入动作是本次用户明确要求；酒馆原版会按设置提示是否导入。
+
+## 元数据验收工具
+
+`node scripts/verify-suite.mjs <本地 validation-suite.json 路径> <状态报告.json 路径>`
+
+使用本地固定套装，在现有隔离运行器中检查模板与助手；不展示素材正文、脚本日志或原始错误，不发送模型请求，不改变来源开关/素材/变量。输出仅含计数、能力标记和固定错误类别。退出码0表示接受，2表示验收未通过，1表示验收基础设施错误。
+
+逐片段执行与语法检查不等于完整业务通过；无异常返回也不等于MVU初始化成功。完整MVU模块、常驻实例、宿主事件和输出更新链路尚未实现时，工具明确记录未通过，不使用空对象或模拟成功隐藏缺口。

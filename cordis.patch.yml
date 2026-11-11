@@ -1,0 +1,45 @@
+- insert:
+    - id: writing-guide
+      name: '@local/dsh-writing-guide'
+      config:
+        dataDir: ''
+        seedSamples: true
+        enableTool: true
+
+# 作家模式：标准模式的组合 + 一段写作向 persona，作为写作指导注入的默认落点。
+# 注入内容本身由 writing-guide 的 prompt section 按模式 id 决定，这段组合只负责「有这么个模式」。
+- insert:
+    - id: preset-writer
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: writer
+        name: 写作模式
+        description: 中文写作模式：正常聊天输入即由写作指导组装（预设/世界书/角色卡/示例对话）并走写作端点；不挂代码执行与子代理工具。
+        order: 5
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                You are a writing and role-play agent powered by the {{model}} model.
+                你负责写小说、续写、角色扮演与场景描写：优先按已注入的预设和世界书设定推进剧情，
+                用具体的动作、对话和感官细节落笔，不写剧情梗概，也不替用户做决定。
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024

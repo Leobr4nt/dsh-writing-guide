@@ -1,0 +1,37 @@
+{
+  "name": "@local/dsh-writing-guide",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "为 DeepSeek Harness 增加写作模式，在正常会话中应用预设、世界书和角色卡。",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib/*.js",
+    "locale/*.json",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    }
+  },
+  "scripts": {
+    "test": "node scripts/test.mjs"
+  }
+}

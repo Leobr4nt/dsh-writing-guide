@@ -1,0 +1,15 @@
+{
+  "meta": {
+    "title": "写作指导",
+    "description": "导入、编辑世界书与提示词预设，并按 DSH 模式（默认作家模式）注入系统提示词。"
+  },
+  "page": {
+    "title": "写作指导",
+    "launcher": "写作指导",
+    "collapse": "收起",
+    "tabInject": "注入",
+    "tabWorlds": "世界书",
+    "tabPresets": "预设",
+    "loading": "正在读取写作指导数据…"
+  }
+}

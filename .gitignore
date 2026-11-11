@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.*
+*.key
+*.pem
+*.log
+*.bak
+*.bak2
+.runtime.json
+.dsh/
+data/
+backups/
+works/
+.DS_Store
+Thumbs.db

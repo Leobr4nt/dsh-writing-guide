@@ -1062,6 +1062,18 @@ window.__ModuleLoader__.load({
           }, [h('option', { key: '', value: '' }, '（不注入预设）')].concat(
             (data.presets ?? []).map((preset) => h('option', { key: preset.id, value: preset.id }, preset.name || preset.id)),
           ))),
+        (() => {
+          const current = (data.presets ?? []).find((preset) => preset.id === (draft.presetId ?? ''));
+          if (!current?.compat) return null;
+          const lines = [];
+          if (current.compat.partial?.length) lines.push(`部分：${current.compat.partial.join('；')}`);
+          if (current.compat.unsupported?.length) lines.push(`仅保留数据：${current.compat.unsupported.join('；')}`);
+          if (!lines.length) return null;
+          return h('div', { key: 'compat', className: 'wg-card' }, [
+            h('h4', { key: 'h' }, `导入兼容性：${current.name || current.id}`),
+            ...lines.map((line, index) => h('div', { key: `l${index}`, className: 'wg-hint' }, line)),
+          ]);
+        })(),
         h(Field, { key: 'ws', label: '世界书范围' },
           h('select', {
             value: worldMode,

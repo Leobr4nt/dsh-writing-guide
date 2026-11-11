@@ -201,7 +201,7 @@ assert.ok(budgeted.meta.notes.some((note) => note.includes('未截断')), '超�
 const macroPreset = normalizePreset({
   id: 'macro',
   name: '宏预设',
-  prompts: [{ identifier: 'main', content: 'A {{random::1::2}} B {{char}}' }],
+  prompts: [{ identifier: 'main', content: 'A {{nope::x}} B {{char}}' }],
   prompt_order: [{ order: [{ identifier: 'main', enabled: true }] }],
 });
 const macroResult = assemble({
@@ -213,7 +213,7 @@ const macroResult = assemble({
   random: () => 0,
 });
 assert.match(macroResult.systemText, /沈砚/, '已知宏被替换');
-assert.match(macroResult.systemText, /\{ \{random::1::2\}\}/, '未知宏原样保留（{{ 被拆开防插值）');
+assert.match(macroResult.systemText, /\{ \{nope::x\}\}/, '未知宏原样保留（{{ 被拆开防插值）');
 assert.ok(macroResult.meta.notes.some((note) => note.includes('未执行的宏')), '未知宏要提示');
 
 // ---- 未知 marker / 未出现在 prompt_order 的条目

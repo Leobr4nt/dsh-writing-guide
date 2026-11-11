@@ -161,5 +161,23 @@ assert.deepEqual(evidence.map((item) => item.markers.join('')), ['[MAIN]', '[WOR
   await rm(root, { recursive: true, force: true });
 }
 
+// 7) 超时 → code 'timeout'（不是 aborted），且不重试
+{
+  const slow = http.createServer((_req, res) => {
+    setTimeout(() => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{}'); }, 400);
+  });
+  await new Promise((resolve) => slow.listen(0, '127.0.0.1', resolve));
+  const slowURL = `http://127.0.0.1:${slow.address().port}/v1`;
+  await assert.rejects(
+    () => postChatCompletion({ baseURL: slowURL, apiKey: KEY, body, timeoutMs: 100 }),
+    (error) => {
+      assert.equal(error.code, 'timeout', '超时要标记 timeout');
+      assert.match(error.message, /超时/, '要有友好提示');
+      return true;
+    },
+  );
+  slow.close();
+}
+
 server.close();
 console.log('chat-transport: 全部通过');

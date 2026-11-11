@@ -233,5 +233,28 @@ const collect = async (stream) => {
   assert.deepEqual(diag.get('s13').missingWorlds, [], 'none 不产生缺失提示');
 }
 
+// 14) transport 抛错 → 诊断仍存在（pending 已写），ok:false / finish:error，无正文
+{
+  const diag = new Map();
+  const bindings = new BindingCache({ bindings: { s14: { presetId: 'p', provider: 'catiecli', model: 'm' } } });
+  const hook = makeHook({
+    bindings,
+    diagnostics: diag,
+    transport: async () => { throw Object.assign(new Error('写作端点超时（1s 无响应）'), { code: 'timeout' }); },
+  });
+  const chunks = await collect(hook({ provider: 'x', model: 'y', sessionId: 's14', messages }, () => 'no'));
+  const record = diag.get('s14');
+  assert.ok(record, 'transport 抛错也要有诊断');
+  assert.equal(record.ok, false);
+  assert.equal(record.finish, 'error');
+  assert.equal(record.phase, 'failed');
+  assert.equal(record.error.code, 'timeout');
+  assert.equal(chunks.length, 1);
+  assert.equal(chunks[0].type, 'finish');
+  assert.equal(chunks[0].reason.kind, 'error');
+  assert.match(chunks[0].reason.failure.message, /超时/);
+  assert.equal(JSON.stringify(record).includes('content'), false, '诊断不含正文');
+}
+
 await rm(root, { recursive: true, force: true });
 console.log('session-hook: 全部通过');

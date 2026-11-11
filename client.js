@@ -1838,7 +1838,7 @@ window.__ModuleLoader__.load({
         state.residentEnabled?h('span',{key:'status'},state.busy?'· 运行中':state.active?'· 扩展已就绪':'· 扩展待启动'):null,
         state.residentEnabled&&!state.active?h('button',{key:'activate',type:'button',style:buttonStyle,disabled:busy||state.busy,onClick:()=>act({action:'activate'})},'启动扩展'):null,
         ...(state.buttons??[]).map(button=>h('button',{key:button.scriptId+'|'+button.name,type:'button',style:buttonStyle,title:button.scriptName,disabled:busy||state.busy,onClick:()=>act({action:'button',scriptId:button.scriptId,name:button.name})},button.name)),
-        state.status?.errors?.length?h('span',{key:'issues',title:'部分扩展功能未完成，请在写作指导中查看兼容性状态'},`· ${state.status.errors.length} 项兼容提示`):null,
+        state.status?.errors?.length?h('span',{key:'issues',title:'按错误类别和公开接口归类；重复次数仍计入累计。部分扩展功能未完成，请在写作指导中查看兼容性状态'},`· ${state.status.errors.length} 类兼容提示（累计 ${state.status.errorCount??state.status.errors.length} 次${state.status.omittedErrorCount?'，含较早记录':''}）`):null,
         error?h('span',{key:'error',role:'alert'},error):null,
       ]:[h('span',{key:'pending',role:error?'alert':undefined},error||'正在读取写作配置…')];
       return h('div',{'data-writing-panel':true,style:{boxSizing:'border-box',width:'100%',padding:'0 var(--dsh-composer-side-clearance, 16px)',marginBottom:6}},

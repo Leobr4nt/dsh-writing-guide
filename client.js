@@ -1713,7 +1713,8 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots'],
       apply(ctx) {
-        ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({name:'conversation.composer.dock',id:'writing-guide-session',order:20}, WritingSessionPanel));
+        // DSH hides composer.dock on its empty-session hero. input.dock is shared by both layouts.
+        ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({name:'conversation.input.dock',id:'writing-guide-session',order:30}, WritingSessionPanel));
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist',
           id: 'writing-guide',

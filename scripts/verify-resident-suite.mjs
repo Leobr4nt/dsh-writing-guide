@@ -45,7 +45,9 @@ try {
     stage = 'mvu-update'; report.updateProbe = await runtime.verifyMvuUpdate();
     stage = 'assemble';
     let captured;
-    const hook = createSessionHook({ store, extensionStore, scopes, diagnostics: new Map(),
+    // Assembly probe has read access only: its synthetic transport must never persist macros.
+    const previewVariables={load:()=>extensionStore.load(),sessionVars:id=>extensionStore.sessionVars(id)};
+    const hook = createSessionHook({ store, extensionStore:previewVariables, scopes, diagnostics: new Map(),
       transport: async ({ plan }) => { captured = plan; return { ok: true, content: 'ACK', finish: 'stop' }; } });
     for await (const _ of hook({ messages: [{ id: 'opaque-test', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '兼容性验收' }] }] }, manifest.sessionId, binding)) {}
     if (!captured) throw Error('ASSEMBLY_FAILED');

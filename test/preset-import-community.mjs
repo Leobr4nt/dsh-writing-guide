@@ -52,7 +52,9 @@ assert.equal(compat.counts.enabled, 5, '启用 5 条');
 assert.equal(compat.counts.disabled, 1, '禁用 1 条');
 assert.ok(compat.macros.unsupported.some(([name]) => name === 'unknownmac'), '未知宏要报出');
 assert.ok((compat.partial ?? []).some((line) => line.includes('正则')), '正则走发送副本（partial），不是完全不支持');
-assert.ok(compat.unsupported.some((line) => line.includes('tavern_helper')), '内嵌脚本仅保留数据');
+assert.ok(compat.partial.some((line) => line.includes('酒馆助手')&&line.includes('常驻')), '脚本报告区分已实现的常驻能力与兼容缺口');
+assert.ok(!compat.partial.some(line=>line.includes('变量仅在本次组装内有效')),'旧的临时变量说明不再出现');
+assert.ok(compat.usable.some(line=>line.includes('持久化')),'报告说明普通宏的聊天变量保存能力');
 
 const preset = normalizePreset({ ...fixture, id: 'fixture-community' });
 preset.compat = { unsupported: ['STALE_REPORT'] };

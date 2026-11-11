@@ -11,7 +11,7 @@
  *   node test/macros.mjs
  */
 import assert from 'node:assert/strict';
-import { createMacroScope, renderMacros, DATA_MACROS } from '../lib/macros.js';
+import { createMacroScope, renderMacros, DATA_MACROS, macroVariables } from '../lib/macros.js';
 import { renderStoryString } from '../lib/preset.js';
 
 const scope = (seed = 's1') => createMacroScope({ seed });
@@ -85,6 +85,19 @@ const scope = (seed = 's1') => createMacroScope({ seed });
 }
 
 // 10) canary：数据宏集合固定
-assert.deepEqual([...DATA_MACROS].sort(), ['getvar', 'random', 'setvar']);
+assert.deepEqual([...DATA_MACROS].sort(), ['addvar','decvar','deletevar','flushvar','getvar','hasvar','incvar','random','setvar','varexists']);
+{
+  const input={coins:'12',list:'[1]',nested:{value:7}};
+  const s=createMacroScope({variables:input});
+  assert.equal(renderMacros('{{getvar::coins}}/{{incvar::coins}}/{{decvar::coins}}/{{addvar::coins::-2}}{{getvar::coins}}',s),'12/13/12/10');
+  assert.equal(renderMacros('{{hasvar::coins}}/{{varexists::absent}}/{{flushvar::coins}}{{hasvar::coins}}',s),'true/false/false');
+  assert.equal(renderMacros('{{addvar::list::new}}{{getvar::list}}',s),'[1,"new"]');
+  assert.equal(renderMacros('{{incvar::list}}',s),'[1,"new",1]');
+  assert.equal(renderMacros('{{setvar::word::a}}{{addvar::word::b}}{{getvar::word}}',s),'ab');
+  assert.equal(renderMacros('{{getvar::nested}}',s),'{"value":7}');
+  assert.equal(macroVariables(s).coins,undefined);
+  assert.equal(input.coins,'12','transaction copies do not mutate the loaded snapshot');
+  assert.throws(()=>renderMacros('{{setvar::__proto__::bad}}',s),/MACRO_VARIABLE_NAME/);
+}
 
 console.log('macros: 全部通过');

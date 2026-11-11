@@ -64,7 +64,8 @@ try {
   stage='assemble';
   const request={messages:[{id:'metadata-acceptance',role:'user',source:{kind:'user'},content:[{type:'text',text:'兼容性状态验收'}]}]};
   let actualPlan;
-  const baselineHook=createSessionHook({store,extensionStore,scopes,diagnostics:new Map(),transport:async({plan})=>{actualPlan=plan;return {ok:true,content:'ACK',finish:'stop'};}});
+  const previewVariables={load:()=>extensionStore.load(),sessionVars:id=>extensionStore.sessionVars(id)};
+  const baselineHook=createSessionHook({store,extensionStore:previewVariables,scopes,diagnostics:new Map(),transport:async({plan})=>{actualPlan=plan;return {ok:true,content:'ACK',finish:'stop'};}});
   for await (const _ of baselineHook(request,manifest.sessionId,binding)) {}
   if (!actualPlan) throw new Error('ASSEMBLY_FAILED');
   const texts=actualPlan.meta.templateIndexes.map(i=>actualPlan.messages[i].content);

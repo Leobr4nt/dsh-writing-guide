@@ -18,3 +18,5 @@ included, installed into DSH, or relicensed by this repository:
 
 Compatibility with a format does not imply complete compatibility with its host,
 DOM, event system, network access, slash commands, or third-party extensions.
+
+Resident browser runtime dependencies: playwright-core (Apache-2.0), esbuild, jQuery, Lodash, Vue, Zod (MIT), and YAML (ISC), at versions pinned by package-lock.json. Public MagVarUpdate reference commit d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc (MIT) was consulted. Third-party runtime module source is fetched into the user data cache with hashes; no user material or fetched module bundle is included in this repository. The helper API version reports the adapter target contract, not installation of the original Tavern Helper plugin. Unsupported APIs remain diagnostic failures.

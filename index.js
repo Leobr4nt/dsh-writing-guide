@@ -1,3 +1,4 @@
+import { ResidentRuntime } from './lib/resident-runtime.js';
 import { forgetExtensionOwner } from './lib/scope-cleanup.js';
 import { ExtensionScopes } from './lib/extension-scopes.js';
 /**
@@ -123,6 +124,8 @@ export function apply(ctx, config = {}) {
   const bindingCache = new BindingCache({ defaultBinding: {}, bindings: {} });
   const extensionStore = new ExtensionStore(store.root);
   const scopes = new ExtensionScopes({store,extensionStore});
+  const residentManager = new ResidentRuntime({store,extensionStore,scopes});
+  ctx.effect(()=>()=>residentManager.dispose());
   const sessionDiagnostics = new Map();
   const sessionListDiagnostics = [];
   const logger = typeof ctx.logger === 'function' ? ctx.logger('writing-guide') : null;
@@ -244,6 +247,7 @@ export function apply(ctx, config = {}) {
     llm: service('llm'),
     extensionStore,
     scopes,
+    residentManager,
     runTemplateBatch,
     isEnabled: () => bindingCache.isEnabled(),
   }));

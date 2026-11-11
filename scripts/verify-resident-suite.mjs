@@ -1,6 +1,73 @@
+/** Read private material in memory; publish only counts, flags and fixed error categories. */
 import path from 'node:path';
-import fs from 'node:fs';import {TavernBrowser,safeRuntimeIssue} from '../lib/tavern-browser.js';import {GuideStore} from '../lib/store.js';import {ExtensionStore} from '../lib/extension-store.js';import {ExtensionScopes,flattenEnabled} from '../lib/extension-scopes.js';import {createSessionHook} from '../lib/session-hook.js';import {selectWritingWorlds} from '../lib/card-lore.js';
-const [manifestFile,reportFile]=process.argv.slice(2);if(!manifestFile||!reportFile)throw Error('usage: node scripts/verify-resident-suite.mjs <validation-suite.json> <report.json>');const root=path.dirname(path.resolve(manifestFile)),m=JSON.parse(fs.readFileSync(manifestFile));const store=new GuideStore(root),ext=new ExtensionStore(root),scopes=new ExtensionScopes({store,extensionStore:ext});const r=new TavernBrowser({cacheDir:path.join(root,'runtime-modules')});
-let stage='prepare';try{const card=await store.getCard(m.cardId),preset=await store.getPreset(m.presetId),binding=(await store.loadBindings()).bindings[m.sessionId];const worlds=selectWritingWorlds({allWorlds:await store.listWorlds(),binding,card}).books;const sources=await scopes.list(binding);const scripts=sources.filter(s=>s.type!=='global').flatMap(s=>flattenEnabled(s.scripts).map(({item})=>({...item,id:JSON.stringify([s.type,s.id,item.id])})));stage='start';await r.start({sessionId:m.sessionId,card,preset,worlds,globalWorlds:worlds.filter(w=>w.id===m.styleWorldId).map(w=>w.name),chat:[{is_user:false,is_system:false,name:card.name,mes:card.firstMes}],scripts,variables:{chat:{},global:{},messages:{},scripts:{}}});stage='scripts';await r.loadScripts(scripts);stage='settle';await r.settle(5000);const result=await r.status();
-if(result.mvu){stage='mvu-update';result.updateProbe=await r.verifyMvuUpdate();stage='template';let captured;const hook=createSessionHook({store,extensionStore:ext,scopes,diagnostics:new Map(),transport:async({plan})=>{captured=plan;return {ok:true,content:'ACK',finish:'stop'};}});for await(const c of hook({messages:[{id:'opaque-test',role:'user',source:{kind:'user'},content:[{type:'text',text:'兼容性验收'}]}]},m.sessionId,binding)){}try{const texts=captured.meta.templateIndexes.map(i=>captured.messages[i].content);const output=await r.render(texts,{char:card.name,user:'用户'});result.templates={ok:true,messages:output.length,remainingMarkers:output.filter(t=>t.includes('<%')).length};}catch(e){result.templates={ok:false,...safeRuntimeIssue(e)};}}
-fs.writeFileSync(reportFile,JSON.stringify(result,null,2));console.log(JSON.stringify(result,null,2));process.exitCode=result.mvu&&result.updateProbe?.eventUpdateVerified&&result.templates?.ok?0:2;}catch(e){console.log(JSON.stringify({ok:false,stage,...safeRuntimeIssue(e)}));}finally{await r.close();}
+import fs from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { TavernBrowser, safeRuntimeIssue } from '../lib/tavern-browser.js';
+import { GuideStore } from '../lib/store.js';
+import { ExtensionStore } from '../lib/extension-store.js';
+import { ExtensionScopes } from '../lib/extension-scopes.js';
+import { createSessionHook } from '../lib/session-hook.js';
+import { selectWritingWorlds } from '../lib/card-lore.js';
+
+const [manifestFile, reportFile] = process.argv.slice(2);
+const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+let runtime, stage = 'manifest';
+let report = { materialTextExposed: false, modelRequests: 0, corePassed: false, fullCompatibility: false };
+try {
+  if (!manifestFile || !reportFile) throw Error('ARGUMENTS');
+  const root = path.dirname(path.resolve(manifestFile));
+  const manifest = JSON.parse(await fs.readFile(manifestFile, 'utf8'));
+  const store = new GuideStore(root), extensionStore = new ExtensionStore(root);
+  const scopes = new ExtensionScopes({ store, extensionStore });
+  const watched = [manifestFile, ...Object.values(manifest.inputs ?? {}).map(input => input.path)];
+  for (const name of ['settings.json', 'bindings.json', 'extensions.json']) watched.push(path.join(root, name));
+  for (const dir of ['presets', 'worlds', 'cards']) {
+    for (const file of await fs.readdir(path.join(root, dir))) if (file.endsWith('.json')) watched.push(path.join(root, dir, file));
+  }
+  const before = new Map(await Promise.all(watched.map(async file => [file, hash(await fs.readFile(file))])));
+  stage = 'prepare';
+  const binding = (await store.loadBindings()).bindings?.[manifest.sessionId];
+  if (!binding) throw Error('BINDING_MISSING');
+  const card = await store.getCard(binding.cardId), preset = await store.getPreset(binding.presetId);
+  if (!card || !preset) throw Error('MATERIAL_MISSING');
+  const worlds = selectWritingWorlds({ allWorlds: await store.listWorlds(), binding, card }).books;
+  const scripts = (await scopes.resolve(binding)).scripts.map(script => ({ ...script, id: JSON.stringify([script.scopeType, script.scopeId, script.id]) }));
+  runtime = new TavernBrowser({ cacheDir: path.join(root, 'runtime-modules') });
+  stage = 'start';
+  await runtime.start({ sessionId: manifest.sessionId, card, preset, worlds,
+    globalWorlds: worlds.filter(world => world.id === manifest.styleWorldId).map(world => world.name),
+    chat: [{ is_user: false, is_system: false, name: card.name, mes: card.firstMes }], scripts,
+    variables: { chat: {}, global: {}, messages: {}, scripts: {} } });
+  stage = 'scripts'; await runtime.loadScripts(scripts);
+  stage = 'settle'; await runtime.settle(5000);
+  report = { ...report, ...await runtime.status() };
+  if (report.mvu) {
+    stage = 'mvu-update'; report.updateProbe = await runtime.verifyMvuUpdate();
+    stage = 'assemble';
+    let captured;
+    const hook = createSessionHook({ store, extensionStore, scopes, diagnostics: new Map(),
+      transport: async ({ plan }) => { captured = plan; return { ok: true, content: 'ACK', finish: 'stop' }; } });
+    for await (const _ of hook({ messages: [{ id: 'opaque-test', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '兼容性验收' }] }] }, manifest.sessionId, binding)) {}
+    if (!captured) throw Error('ASSEMBLY_FAILED');
+    stage = 'template';
+    try {
+      const texts = captured.meta.templateIndexes.map(index => captured.messages[index].content);
+      const output = await runtime.render(texts, { char: card.name, user: '用户' });
+      report.templates = { ok: true, messages: output.length, remainingMarkers: output.filter(text => text.includes('<%')).length };
+    } catch (error) { report.templates = { ok: false, ...safeRuntimeIssue(error) }; }
+  }
+  stage = 'verify-state';
+  report.inputsAndStateUnchanged = (await Promise.all([...before].map(async ([file, value]) => hash(await fs.readFile(file)) === value))).every(Boolean);
+  report.corePassed = !!(report.mvu && report.updateProbe?.eventUpdateVerified && report.templates?.ok && report.templates.remainingMarkers === 0 && report.inputsAndStateUnchanged);
+  // Core MVU/template acceptance does not establish full script UI or host API compatibility.
+  report.fullCompatibility = false;
+  process.exitCode = report.corePassed ? 0 : 2;
+} catch (error) {
+  report = { ...report, ok: false, stage, ...safeRuntimeIssue(error) };
+  process.exitCode = 1;
+} finally { await runtime?.close(); }
+if (reportFile) {
+  try { await fs.writeFile(reportFile, JSON.stringify(report, null, 2)); }
+  catch { report = { ok: false, stage: 'report', category: 'REPORT_WRITE_FAILED' }; process.exitCode = 1; }
+}
+console.log(JSON.stringify(report, null, 2));

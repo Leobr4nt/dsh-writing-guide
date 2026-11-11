@@ -352,6 +352,7 @@ export function apply(ctx, config = {}) {
     bindings: bindingCache,
     extensionStore,
     runtime: { runTemplateBatch, runHelperScript },
+    residentManager,
     readSessionMessages,
     listSessions: collectSessions,
   });

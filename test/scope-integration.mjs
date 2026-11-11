@@ -17,6 +17,8 @@ const importedPreset={...p,name:'P',extensions:p.extensions};
 assert.equal((await call('/preset/import',{name:'p.json',idPrefix:'p',data:importedPreset})).status,200);
 assert.equal((await call('/cards/import',{card:{id:'c',spec:'chara_card_v2',data:{name:'C',extensions:(await store.getCard('c')).extensions}}})).status,200);
 let listing=await call('/extensions/scopes?sessionId=s',undefined,'GET');assert.equal(listing.status,200);assert.equal(listing.sources.length,3);assert.equal(listing.sources[1].scripts[0].id,'same');assert.equal(listing.sources[1].scripts[0].enabled,true);assert.equal(listing.sources[1].helperAllowed,false);assert.equal(listing.sources[1].regexAllowed,false);
+const panel=await call('/session-panel?sessionId=s',undefined,'GET');assert.equal(panel.writer,true);assert.equal(panel.model,'m');assert.equal(panel.residentEnabled,false);
+assert.equal((await call('/session-panel?sessionId=unknown',undefined,'GET')).writer,false);
 assert.equal((await ext.load()).helper.scripts.length,0,'embedded scripts never copied to global');
 let preview=await call('/extensions/scope/preview',{sessionId:'s',text:'A',placement:1,mode:'send'});assert.equal(preview.result.output,'B');
 for(const type of ['preset','character'])await call('/extensions/scope/allowed',{scope:{type,id:type==='preset'?'p':'c'},kind:'regex',enabled:true});

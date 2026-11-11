@@ -25,5 +25,10 @@ try {
   assert.ok(![result.stdout,result.stderr,saved].some(s=>s.includes(sentinel)),'material, script logs and exception text stay hidden');
   const value=JSON.parse(saved);assert.equal(value.accepted,false);assert.equal(value.inputsAndStateUnchanged,true);
   assert.equal(value.enabledTemplatePath.modelTransportCalls,0);assert.equal(value.enabledTemplatePath.variableCommits,0);
+  const missing=spawnSync(process.execPath,[fileURLToPath(new URL('../scripts/verify-resident-suite.mjs',import.meta.url)),path.join(root,'missing.json'),path.join(root,'missing-report.json')],{encoding:'utf8',windowsHide:true,timeout:10000});
+  assert.equal(missing.status,1,'resident validation infrastructure failures cannot report success');
+  const missingReport=JSON.parse(await fs.readFile(path.join(root,'missing-report.json'),'utf8'));
+  assert.equal(missingReport.corePassed,false);assert.equal(missingReport.fullCompatibility,false);
+  assert.ok(!missing.stdout.includes(root),'failure output does not echo private filesystem paths');
   console.log('suite-audit-privacy: protected text/errors omitted, failed acceptance explicit, persistent data unchanged');
 } finally { await fs.rm(root,{recursive:true,force:true}); }

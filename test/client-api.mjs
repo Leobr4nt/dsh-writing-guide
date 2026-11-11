@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
+const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8').replace(/\r\n?/g, '\n');
 
 const start = source.indexOf('async function api(method, path, body) {');
 const end = source.indexOf('\n    }\n', start);

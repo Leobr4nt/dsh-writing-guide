@@ -62,7 +62,7 @@ const messages = [
   { role: 'user', content: [{ type: 'text', text: '雨夜，写一段' }], source: { kind: 'user' } },
 ];
 
-const makeHook = ({ bindings, preset = 'writer', transport, diagnostics = new Map(), enabled = true }) => {
+const makeHook = ({ bindings, preset = 'writer', transport, diagnostics = new Map(), enabled = true, llm }) => {
   let captured;
   registerSessionHook({
     ctx: { on: (_name, handler) => { captured = handler; return () => {}; } },
@@ -71,6 +71,7 @@ const makeHook = ({ bindings, preset = 'writer', transport, diagnostics = new Ma
     transport: transport ?? (async () => ({ ok: true, content: '正文', finish: 'stop', usage: null })),
     log: () => {},
     diagnostics,
+    llm,
     sessions: { get: () => ({ id: 'x' }) },
     agentPresets: { presetForSession: () => preset },
     isEnabled: () => enabled,
@@ -173,7 +174,8 @@ const collect = async (stream) => {
   const chunks = await collect(hook({ provider: 'x', model: 'y', sessionId: 's8', messages }, () => 'no'));
   assert.equal(chunks.length, 1);
   assert.equal(chunks[0].reason.kind, 'error');
-  assert.equal(chunks[0].reason.failure.code, 'WRITING_GUIDE_FAILED');
+  assert.equal(chunks[0].reason.failure.code, 'WRITING_GUIDE_OUTPUT_LIMIT');
+  assert.match(chunks[0].reason.failure.message, /输出.*上限/);
 }
 
 // 9) 预算：上下文被输出预留占满 → 明确拒绝
@@ -325,6 +327,30 @@ const collect = async (stream) => {
   assert.equal(chunks.at(-1).reason.failure.code, 'WRITING_GUIDE_TEMPLATE');
   assert.match(chunks.at(-1).reason.failure.message, /模板渲染失败/);
   assert.equal(diag.get('s16')?.ok, false);
+}
+
+// A saved per-session output/context limit reaches both budget and transport.
+{
+  await store.saveSettings({ ...baseSettings, maxTokens: 4096, contextWindow: 8192 });
+  const bindings = new BindingCache({ bindings: {
+    custom: { presetId: 'p', provider: 'catiecli', model: 'm', maxTokens: 12288, contextWindow: 65536 },
+    other: { presetId: 'p', provider: 'catiecli', model: 'm' },
+  } });
+  const sent = [], diagnostics = new Map();
+  const transport = async args => { sent.push(args); return { ok: true, content: 'ok', finish: 'stop' }; };
+  const hook = makeHook({ bindings, diagnostics, transport });
+  await collect(hook({ sessionId: 'custom', messages }, () => { throw Error('unexpected delegation'); }));
+  assert.equal(sent.at(-1).maxTokens, 12288);
+  assert.equal(diagnostics.get('custom').outputCap, 12288);
+  assert.equal(diagnostics.get('custom').context, 65536);
+  await collect(hook({ sessionId: 'other', messages }, () => { throw Error('unexpected delegation'); }));
+  assert.equal(sent.at(-1).maxTokens, 4096, 'another session keeps the global fallback');
+  const capped = makeHook({ bindings, diagnostics, transport,
+    llm: { resolveModelInfo: async () => ({ defaultMaxTokens: 8192, context: { contextWindow: 32768 } }) },
+  });
+  await collect(capped({ sessionId: 'custom', messages }, () => { throw Error('unexpected delegation'); }));
+  assert.equal(sent.at(-1).maxTokens, 8192, 'model output capacity still caps the requested limit');
+  assert.equal(diagnostics.get('custom').context, 32768);
 }
 
 await rm(root, { recursive: true, force: true });

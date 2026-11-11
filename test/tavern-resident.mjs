@@ -15,12 +15,27 @@ const ordering=[];const fn=()=>ordering.push('a');events.eventOn('order',fn);eve
 
 const dir=await fs.mkdtemp(path.join(os.tmpdir(),'wg-browser-test-'));const runtime=new TavernBrowser({cacheDir:dir});
 try {
-  const scripts=[{id:'a',content:'let ticks=0; eventOn("tick",async()=>{await Promise.resolve();insertOrAssignVariables({ticks:++ticks});});',data:{}},
+  const scripts=[{id:'a',name:'Fixture script',enabled:true,button:{enabled:true,buttons:[{name:'Advance',visible:true},{name:'Hidden',visible:false}]},content:'let ticks=0; eventOn("tick",async()=>{await Promise.resolve();insertOrAssignVariables({ticks:++ticks});}); eventOn(getButtonEvent("Advance"),()=>{insertOrAssignVariables({buttonClicked:true});replaceScriptButtons([{name:"Next",visible:true}]);});',data:{}},
     {id:'b',content:'eventOn("tick",()=>insertOrAssignVariables({other:true})); eventClearAll();',data:{}}];
-  await runtime.start({sessionId:'test',card:{name:'Fixture'},preset:{name:'Fixture'},worlds:[],chat:[{name:'Fixture',is_user:false,mes:'fixture'}],scripts});
+  await runtime.start({sessionId:'test',card:{name:'Fixture'},preset:{name:'Fixture'},worlds:[{id:'book',name:'Fixture world',originalData:{version:1},entries:[{uid:7,content:'synthetic lore',key:['fixture'],disable:false}]}],chat:[{name:'Fixture',is_user:false,mes:'fixture'}],scripts});
+  const loadedBook=await runtime.page.evaluate(async()=>{
+    const book=await SillyTavern.getContext().loadWorldInfo('Fixture world');
+    book.entries[7].content='changed copy';
+    return {entry:(await SillyTavern.loadWorldInfo('Fixture world')).entries[7],missing:await SillyTavern.loadWorldInfo('missing'),version:book.version,uuid:SillyTavern.uuidv4()};
+  });
+  assert.equal(loadedBook.entry.content,'synthetic lore','context reads cannot mutate stored entries');
+  assert.equal(loadedBook.missing,null);
+  assert.equal(loadedBook.version,1);
+  assert.match(loadedBook.uuid,/^[a-f0-9-]{36}$/);
   await runtime.loadScripts(scripts);await runtime.emit('tick');await runtime.emit('tick');
   const state=await runtime.snapshot();assert.equal(state.variables.chat.ticks,2);assert.equal(state.variables.chat.other,undefined,'clearAll applies only to the calling script');
   const output=await runtime.render(['<%- await Promise.resolve(getLocalVar("ticks")) %>']);assert.deepEqual(output,['2']);
+  assert.deepEqual((await runtime.buttons()).map(button=>button.name),['Advance']);
+  assert.equal((await runtime.clickButton('a','Advance')).variables.chat.buttonClicked,true);
+  assert.deepEqual((await runtime.buttons()).map(button=>button.name),['Next']);
+  await assert.rejects(runtime.clickButton('a','Hidden'),/BUTTON_NOT_AVAILABLE/);
+  await assert.rejects(runtime.clickButton('other','Next'),/BUTTON_NOT_AVAILABLE/);
+  assert.equal(await runtime.page.evaluate(()=>typeof $.fn.draggable),'function');
   await runtime.page.evaluate(async()=>{try{await fetch('https://example.invalid/private-fixture');}catch{}});
   assert.ok((await runtime.status()).blockedRequests>0);
   await runtime.loadScripts([{id:'protected',content:'throw Error("PRIVATE_SENTINEL");'}]);await runtime.settle(100);

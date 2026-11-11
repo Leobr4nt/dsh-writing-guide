@@ -306,13 +306,22 @@ export function apply(ctx, config = {}) {
     return { rows, attempts };
   };
 
+  // Read the attached Session first: blank-session preset changes need not wait for list metadata.
+  const getSessionInfo = async (sessionId) => {
+    const session = service('sessions')?.get?.(sessionId);
+    if (session) {
+      const preset = service('agentPresets')?.presetForSession?.(session) ?? session.header?.agentPreset ?? '';
+      return { id: sessionId, preset, writer: preset === 'writer' };
+    }
+    return (await collectSessions()).rows.find(row => row.id === sessionId) ?? null;
+  };
+
   /** 读某会话的**真实** user/assistant 消息（gateway session/events，bridge 同款调用）。 */
   const readSessionMessages = async (sessionId) => {
     const gateway = service('typertGateway');
     let peer;
     try {
-      const listing = await collectSessions();
-      const info = listing.rows.find(row => row.id === sessionId);
+      const info = await getSessionInfo(sessionId);
       if (!info) throw new Error('找不到会话');
       if (!info.writer) return { writer:false, preset:info.preset, messages:[] };
       peer = service('connection').createPeer({ principal:{kind:'owner'}, interactions:'none' });
@@ -355,6 +364,7 @@ export function apply(ctx, config = {}) {
     residentManager,
     readSessionMessages,
     listSessions: collectSessions,
+    getSessionInfo,
   });
 
   const boot = async () => {

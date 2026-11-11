@@ -1683,14 +1683,15 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'wg-root' }, h(App, {}));
     }
 
-    function WritingSessionPanel({ sessionId }) {
+    function WritingSessionPanel({ sessionId, useProjection }) {
+      const preset=useProjection('agentPreset');
       const [state,setState]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
       const current=useRef(sessionId);current.current=sessionId;
       const refresh=useCallback(async()=>{
-        if(!sessionId)return;
+        if(!sessionId||preset!=='writer'){setState(null);return;}
         try{const next=await api('GET','/session-panel?sessionId='+encodeURIComponent(sessionId));if(current.current===sessionId)setState(next);}
-        catch{if(current.current===sessionId)setState(null);}
-      },[sessionId]);
+        catch{if(current.current===sessionId){setState(null);setError('写作配置暂时无法读取，请刷新后重试');}}
+      },[sessionId,preset]);
       useEffect(()=>{setState(null);setError('');setBusy(false);void refresh();const timer=setInterval(()=>{if(!document.hidden)void refresh();},5000);return()=>clearInterval(timer);},[refresh]);
       const act=async payload=>{
         setBusy(true);setError('');
@@ -1698,16 +1699,18 @@ window.__ModuleLoader__.load({
         catch(e){if(current.current===sessionId)setError(e.message);}
         finally{if(current.current===sessionId)setBusy(false);}
       };
-      if(!state?.writer)return null;
+      if(preset!=='writer')return null;
       const buttonStyle={font:'inherit',border:'1px solid var(--dsw-alias-border-primary, #d7d4cf)',borderRadius:8,padding:'3px 9px',background:'var(--dsw-alias-bg-layer-2, #f4f2ee)',color:'inherit',cursor:'pointer'};
-      return h('div',{'data-writing-panel':true,style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',fontSize:12,padding:'4px 0'}},[
+      const content=state?.writer?[
         h('span',{key:'model',title:state.provider},'写作模型：'+(state.model||'尚未配置')),
         state.residentEnabled?h('span',{key:'status'},state.busy?'· 运行中':state.active?'· 扩展已就绪':'· 扩展待启动'):null,
         state.residentEnabled&&!state.active?h('button',{key:'activate',type:'button',style:buttonStyle,disabled:busy||state.busy,onClick:()=>act({action:'activate'})},'启动扩展'):null,
         ...(state.buttons??[]).map(button=>h('button',{key:button.scriptId+'|'+button.name,type:'button',style:buttonStyle,title:button.scriptName,disabled:busy||state.busy,onClick:()=>act({action:'button',scriptId:button.scriptId,name:button.name})},button.name)),
         state.status?.errors?.length?h('span',{key:'issues',title:'部分扩展功能未完成，请在写作指导中查看兼容性状态'},`· ${state.status.errors.length} 项兼容提示`):null,
         error?h('span',{key:'error',role:'alert'},error):null,
-      ]);
+      ]:[h('span',{key:'pending',role:error?'alert':undefined},error||'正在读取写作配置…')];
+      return h('div',{'data-writing-panel':true,style:{boxSizing:'border-box',width:'100%',padding:'0 var(--dsh-composer-side-clearance, 16px)',marginBottom:6}},
+        h('div',{'data-writing-panel-content':true,style:{boxSizing:'border-box',width:'100%',maxWidth:'var(--dsh-composer-card-max-width, 952px)',margin:'0 auto',display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',fontSize:12,lineHeight:'20px',padding:'4px 0',color:'var(--dsw-alias-label-secondary, inherit)',overflowWrap:'anywhere'}},content));
     }
 
     return {

@@ -6,7 +6,7 @@
 
 ## 版本与兼容性
 
-- 插件版本：0.3.0，扩展来源关联管理。
+- 插件版本：0.3.1，角色卡内置世界书导入与关联。
 - 已验证宿主：Windows 上的 DSH 0.2.2-rc.1。
 - 其他宿主版本及操作系统尚未实际验证。DSH 的插件接口变化可能需要适配。
 - 模式稳定 ID 为 `writer`，显示名称为“写作模式”。
@@ -135,3 +135,13 @@ npm test
 行为依据：SillyTavern regex engine/index（读取、保存、来源允许列表、单独导入与删除事件）；JS-Slash-Runner store/scripts、settings/preset、settings/character、type/backward、panel/script/Toolbar.vue。具体commit见 THIRD_PARTY_NOTICES.md。
 
 明确的宿主差异：来源允许列表用稳定DSH实体id；内部用来源+实体+脚本复合身份防止同id串数据，尚未复刻酒馆切换素材时重写冲突脚本ID的生命周期。脚本运行仍为QuickJS基础API与手动执行，不支持酒馆iframe/DOM、持续事件和自动启动。来源管理实现不等于整个酒馆运行环境已经移植。
+
+## 角色卡内置世界书（0.3.1）
+
+导入JSON/PNG角色卡时，内置character_book会转换为独立世界书并出现在世界书列表，角色卡以extensions.world和本地稳定ID关联该书。随后写作从世界书列表读取当前版本；编辑书后下次写作立即使用新内容，导出卡片也使用当前关联书。
+
+该书即使未选为全局书，仍可作为当前角色的关联书参与；同时在全局和角色关联中出现时只计一次。删除关联书后报告缺失，不静默重新使用卡内旧副本。同名书内容不同时返回冲突，需明确确认覆盖；重导入相同内容复用现有书。
+
+PNG上限20MB，解码后的JSON上限12MB；PNG导入端点允许30MB的JSON/base64请求体。原始character_book保留在rawCharacterBook和世界书originalData中，规范化/导出保留扩展字段与未知字段，不把保存成功等同于所有MVU/模板扩展已实现。
+
+行为参照SillyTavern world-info.js的importEmbeddedWorldInfo、convertCharacterBook、getCharacterLore，以及characters.js的convertWorldInfoToCharacterBook。自动执行导入动作是本次用户明确要求；酒馆原版会按设置提示是否导入。

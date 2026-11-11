@@ -1174,19 +1174,22 @@ window.__ModuleLoader__.load({
         if (!file) return;
         setBusy(true);
         try {
-          const isPng = /.png$/i.test(file.name) || file.type === 'image/png';
+          const isPng = /\.png$/i.test(file.name) || file.type === 'image/png';
+          let payload;
           if (isPng) {
-            const buffer = await file.arrayBuffer();
-            const bytes = new Uint8Array(buffer);
-            let binary = '';
-            for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
-            await api('POST', '/cards/import', { pngBase64: btoa(binary) });
-          } else {
-            const text = await file.text();
-            await api('POST', '/cards/import', JSON.parse(text));
+            if(file.size>20*1024*1024)throw new Error('PNG 超过 20 MB');
+            const bytes=new Uint8Array(await file.arrayBuffer());let binary='';
+            for(let i=0;i<bytes.length;i+=0x8000)binary+=String.fromCharCode(...bytes.subarray(i,i+0x8000));
+            payload={pngBase64:btoa(binary)};
+          } else payload={card:JSON.parse(await file.text())};
+          let imported;
+          try{imported=await api('POST','/cards/import',payload);}
+          catch(error){
+            if(!String(error.message).includes('同名世界书')||!window.confirm('存在不同内容的同名世界书。按酒馆导入逻辑覆盖并关联到此角色卡？'))throw error;
+            imported=await api('POST','/cards/import',{...payload,overwriteWorld:true});
           }
           await load();
-          notify('角色卡已导入');
+          notify(imported.world?'角色卡已导入，内置世界书已加入列表并关联':'角色卡已导入');
         } catch (error) { fail(error); } finally { setBusy(false); }
       };
 
@@ -1208,7 +1211,7 @@ window.__ModuleLoader__.load({
             key: 'file', type: 'file', accept: '.json,.png,image/png', ref: fileRef, style: { display: 'none' },
             onChange: (event) => { const file = event.target.files?.[0]; event.target.value = ''; importFile(file); },
           }),
-          h('span', { key: 'h', className: 'wg-hint' }, 'PNG 只读 tEXt 的 chara / ccv3（ccv3 优先），不上传解析、不执行卡内脚本'),
+          h('span', { key: 'h', className: 'wg-hint' }, 'PNG 只读 tEXt 的 chara / ccv3（ccv3 优先），仅在本机解析；内置世界书自动导入并关联，不执行卡内脚本'),
         ]),
         cards.length === 0 ? h('div', { key: 'empty', className: 'wg-empty' }, '还没有角色卡') : null,
         ...cards.map((card) => h('div', { key: card.id, className: 'wg-item' }, [

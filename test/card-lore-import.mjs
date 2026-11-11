@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';import {mkdtemp,rm} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import {Readable} from 'node:stream';
+import {GuideStore} from '../lib/store.js';import {createGuideRoutes} from '../lib/routes.js';import {normalizeCard,toStCard} from '../lib/cards.js';import {importCardWithLore,selectWritingWorlds,cardWithCurrentLore} from '../lib/card-lore.js';
+const root=await mkdtemp(path.join(os.tmpdir(),'wg-card-lore-')),store=new GuideStore(root);await store.ensure();
+const raw={spec:'chara_card_v3',data:{name:'Synthetic Card',character_book:{name:'Fixture Book',custom:1,entries:[{id:0,keys:['hello'],secondary_keys:[],content:'Initial',enabled:true,position:'before_char',insertion_order:7,extensions:{position:4,depth:2,prevent_recursion:true,ignore_budget:true,unknown:'keep'}}]}}};
+const card=normalizeCard(raw);const result=await importCardWithLore({store,card});assert.ok(result.card.id);assert.equal(result.world.entries.length,1);assert.deepEqual(result.world.originalData,raw.data.character_book);
+const linked=result.card;assert.equal(linked.extensions.world,'Fixture Book');assert.equal(normalizeCard(linked).linkedWorldId,linked.linkedWorldId);
+await importCardWithLore({store,card});assert.equal((await store.listWorlds()).length,1);
+let worlds=await store.listWorlds();const b={worldSelection:'selected',worldIds:[linked.linkedWorldId]};assert.equal(selectWritingWorlds({allWorlds:worlds,binding:b,card:linked}).books.length,1);
+assert.equal(selectWritingWorlds({allWorlds:worlds,binding:{worldSelection:'none'},card:linked}).books.length,1);
+assert.equal(selectWritingWorlds({allWorlds:worlds,binding:b,card:linked,includeWorlds:false}).books.length,0);
+worlds[0].entries[0].content='Edited';await store.saveWorld(worlds[0]);assert.equal(selectWritingWorlds({allWorlds:await store.listWorlds(),binding:b,card:linked}).books[0].entries[0].content,'Edited');
+assert.equal(toStCard(await cardWithCurrentLore(store,linked)).data.character_book.entries[0].content,'Edited');
+await assert.rejects(importCardWithLore({store,card}),/同名世界书/);assert.equal((await store.listWorlds())[0].entries[0].content,'Edited');
+await importCardWithLore({store,card,overwriteWorld:true});assert.equal((await store.listWorlds())[0].entries[0].content,'Initial');
+await store.deleteWorld(linked.linkedWorldId);const missing=selectWritingWorlds({allWorlds:await store.listWorlds(),binding:{worldSelection:'none'},card:linked});assert.equal(missing.books.length,0);assert.ok(missing.missingWorlds.length);
+// Real route accepts base64 JSON bodies larger than the former 16 MB cutoff.
+const png=encoded=>{const sig=Buffer.from([137,80,78,71,13,10,26,10]);const d=Buffer.from('ccv3\0'+encoded);const len=Buffer.alloc(4);len.writeUInt32BE(d.length);const text=Buffer.concat([len,Buffer.from('tEXt'),d,Buffer.alloc(4)]);return Buffer.concat([sig,text,Buffer.from([0,0,0,0]),Buffer.from('IEND'),Buffer.alloc(4)]);};
+const big={...raw,data:{...raw.data,unknownPadding:'x'.repeat(10*1024*1024)}};const buffer=png(Buffer.from(JSON.stringify(big)).toString('base64'));assert.ok(buffer.length<20*1024*1024);
+const routes=createGuideRoutes({store,listModes:()=>[],lastState:()=>({})});const req=Readable.from([Buffer.from(JSON.stringify({pngBase64:buffer.toString('base64')}))]);req.method='POST';let response;const res={setHeader(){},end(v){response={status:this.statusCode,...JSON.parse(v)}}};assert.ok(await routes(req,res,new URL('http://local/api/writing-guide/cards/import')));assert.equal(response.status,200);assert.equal(response.world.entries,1);assert.equal(response.card.custom.unknownPadding.length,10*1024*1024);
+console.log('card-lore-import: link, deduplication, edit/export, conflict and large PNG route passed');await rm(root,{recursive:true,force:true});

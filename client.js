@@ -62,6 +62,17 @@ window.__ModuleLoader__.load({
   color: var(--dsw-alias-label-secondary, #5c564c); border-radius: 7px; }
 .wg-tabs button[aria-selected="true"] { background: var(--dsw-alias-bg-layer-2, #efe9df); color: var(--dsw-alias-label-primary, #16140f); font-weight: 600; }
 .wg-body { flex: 1; min-height: 0; overflow: auto; padding: 14px 18px 28px; display: flex; flex-direction: column; gap: 12px; }
+.wg-body:not(.wg-body-config) { align-items: stretch; padding: 24px; gap: 18px; }
+.wg-body:not(.wg-body-config) > * { flex-shrink: 0; box-sizing: border-box; width: 100%; max-width: 1100px; margin-left: auto; margin-right: auto; }
+.wg-body > .wg-body { overflow: visible; padding: 0; flex: none; }
+.wg-collection { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.wg-page-heading h2 { font-size: 22px; margin: 0 0 5px; }
+.wg-page-heading p { margin: 0; color: var(--dsw-alias-label-secondary, #777); font-size: 12px; }
+.wg-search { box-sizing: border-box; width: 100%; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l1, #ccc); border-radius: 9px; background: var(--dsw-alias-bg-layer-1, #fff); color: inherit; font: inherit; }
+.wg-item-ops { display: flex; gap: 8px; flex-wrap: wrap; }
+.wg-body:not(.wg-body-config) .wg-card { padding: 16px; gap: 12px; }
+.wg-body:not(.wg-body-config) .wg-field input, .wg-body:not(.wg-body-config) .wg-field select, .wg-body:not(.wg-body-config) .wg-field textarea { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.wg-item { min-width: 0; flex-wrap: wrap; }
 .wg-card { border: 1px solid var(--dsw-alias-border-l1, #d8d2c6); border-radius: 11px; padding: 10px 12px;
   display: flex; flex-direction: column; gap: 8px; background: var(--dsw-alias-bg-layer-1, #fffdf9); }
 .wg-card h4 { margin: 0; font-size: 12.5px; }
@@ -186,6 +197,8 @@ window.__ModuleLoader__.load({
     function Styles() {
       return h('style', { 'data-writing-guide-style': 'true' }, CSS);
     }
+    function SearchInput({query,onChange,label}){return h('input',{className:'wg-search',type:'search',value:query,'aria-label':label,placeholder:label,onChange:event=>onChange(event.target.value)});}
+    const matchesSearch=(item,query)=>`${item.name??item.title??''} ${item.id??''}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
 
     function Field({ label, children }) {
       const id=React.useId();
@@ -600,6 +613,25 @@ window.__ModuleLoader__.load({
     }
 
     // ----------------------------------------------------------- 预设编辑
+    function SPresetEditor({value,onChange}){
+      const config=value??{};
+      const section=(key,patch)=>onChange({...config,[key]:{...config[key],...patch}});
+      return h('details',{className:'wg-disclosure'},[
+        h('summary',{key:'summary'},'SPreset 扩展设置'),
+        h('div',{key:'body',className:'wg-disclosure-body'},[
+          h('label',{key:'nested'},[h('input',{type:'checkbox',checked:config.MacroNest===true,onChange:e=>onChange({...config,MacroNest:e.target.checked})}),' 嵌套数据宏']),
+          h(Field,{key:'name',label:'导入固定名称'},h('input',{value:config.FixedPresetName??'',onChange:e=>onChange({...config,FixedPresetName:e.target.value})})),
+          h('label',{key:'squash'},[h('input',{type:'checkbox',checked:config.ChatSquash?.enabled===true,onChange:e=>section('ChatSquash',{enabled:e.target.checked})}),' 合并聊天消息']),
+          config.ChatSquash?.enabled?h(Field,{key:'role',label:'合并后的角色'},h('select',{value:config.ChatSquash.role??'assistant',onChange:e=>section('ChatSquash',{role:e.target.value})},['assistant','user','system','follow'].map(role=>h('option',{key:role,value:role},role)))):null,
+          h('label',{key:'output'},[h('input',{type:'checkbox',checked:config.OutputPreprocessing?.enabled===true,onChange:e=>section('OutputPreprocessing',{enabled:e.target.checked})}),' 启用输出处理函数']),
+          config.OutputPreprocessing?.enabled?h(Field,{key:'script',label:'输出处理函数'},h('textarea',{value:config.OutputPreprocessing.script??'',placeholder:'({buffer}) => buffer',onChange:e=>section('OutputPreprocessing',{script:e.target.value})})):null,
+          h('label',{key:'forced'},[h('input',{type:'checkbox',checked:config.ForcedPostProcessing?.enabled===true,onChange:e=>section('ForcedPostProcessing',{enabled:e.target.checked})}),' 强制消息后处理']),
+          config.ForcedPostProcessing?.enabled?h(Field,{key:'mode',label:'后处理方式'},h('select',{value:config.ForcedPostProcessing.mode??'',onChange:e=>section('ForcedPostProcessing',{mode:e.target.value})},[['','不变'],['merge','合并相邻同角色'],['single','单条用户消息']].map(([value,label])=>h('option',{key:value,value},label)))):null,
+          h('div',{key:'hint',className:'wg-hint'},'绑定正则在扩展页编辑；导入的结构化消息和纯函数工具绑定按预设启用条目执行。脚本不会获得网络、文件或凭证。'),
+        ]),
+      ]);
+    }
+
     function PresetEditor({ preset, data, onClose, onSaved, fail }) {
       const [draft, setDraft] = useState(preset);
       const order = draft.prompt_order?.[0]?.order ?? [];
@@ -680,6 +712,7 @@ window.__ModuleLoader__.load({
         h('div', { key: 'add', className: 'wg-bar' }, [
           h('button', { key: 'a', className: 'wg-btn', onClick: addPrompt }, '+ 新增条目'),
         ]),
+        h(SPresetEditor,{key:'spreset',value:draft.extensions?.SPreset,onChange:SPreset=>setDraftValue({extensions:{...draft.extensions,SPreset}})}),
         ...order.map((row, index) => {
           const prompt = byId.get(row.identifier);
           if (!prompt) return null;
@@ -762,6 +795,7 @@ window.__ModuleLoader__.load({
 
     // --------------------------------------------------------------- 列表页
     function WorldsPanel({ data, reload, notify, fail }) {
+      const [query,setQuery]=useState('');
       const [creating, setCreating] = useState(false);
       const downloadJson = async (path, name, pick) => {
         try {
@@ -850,7 +884,8 @@ window.__ModuleLoader__.load({
           }),
           h('span', { key: 'n', className: 'wg-hint' }, `${data.worlds.length} 本 · 吃 ST 的 worlds/*.json（entries 数组或字典都行）`),
         ]),
-        ...data.worlds.map((world) => h('div', { key: world.id, className: 'wg-item' }, [
+        h(SearchInput,{key:'search',query,onChange:setQuery,label:'搜索世界书名称'}),
+        ...data.worlds.filter(world=>matchesSearch(world,query)).map((world) => h('div', { key: world.id, className: 'wg-item' }, [
           h('div', { key: 'm', className: 'wg-item-main' }, [
             h('b', { key: 'b' }, world.name),
             h('div', { key: 'd' }, [
@@ -883,6 +918,7 @@ window.__ModuleLoader__.load({
     }
 
     function PresetsPanel({ data, reload, notify, fail }) {
+      const [query,setQuery]=useState('');
       const [creating, setCreating] = useState(false);
       const downloadJson = async (path, name, pick) => {
         try {
@@ -970,7 +1006,8 @@ window.__ModuleLoader__.load({
           }),
           h('span', { key: 'n', className: 'wg-hint' }, `${data.presets.length} 份 · 吃 ST 预设（prompts + prompt_order）/ 整份 settings.json`),
         ]),
-        ...data.presets.map((preset) => h('div', { key: preset.id, className: 'wg-item', 'data-active': String(data.settings.presetId === preset.id) }, [
+        h(SearchInput,{key:'search',query,onChange:setQuery,label:'搜索预设名称'}),
+        ...data.presets.filter(preset=>matchesSearch(preset,query)).map((preset) => h('div', { key: preset.id, className: 'wg-item', 'data-active': String(data.settings.presetId === preset.id) }, [
           h('div', { key: 'm', className: 'wg-item-main' }, [
             h('b', { key: 'b' }, preset.name),
             h('div', { key: 'd' }, [
@@ -1124,6 +1161,8 @@ window.__ModuleLoader__.load({
       const compat=currentPreset?.compat;
       const compatGroups=[
         {label:'部分支持',items:compat?.partial??[]},
+        {label:'SPreset 已接入',items:compat?.spreset?.supported??[]},
+        {label:'SPreset 适配边界',items:compat?.spreset?.limitations??[]},
         {label:'暂未执行',items:compat?.unsupported??[]},
       ].filter(group=>group.items.length);
       const compatCount=compatGroups.reduce((count,group)=>count+group.items.length,0);
@@ -1227,6 +1266,7 @@ window.__ModuleLoader__.load({
 
     /** 角色卡：JSON/PNG 导入、编辑基础字段与开场白、导出。 */
     function CardsPanel({ notify, fail }) {
+      const [query,setQuery]=useState('');
       const [cards, setCards] = useState(null);
       const [editing, setEditing] = useState(null);
       const [busy, setBusy] = useState(false);
@@ -1270,17 +1310,18 @@ window.__ModuleLoader__.load({
       };
 
       if (!cards) return h('div', { className: 'wg-empty' }, '读取角色卡…');
-      return h('div', {}, [
+      return h('div', {className:'wg-collection'}, [
         h('div', { key: 'bar', className: 'wg-row' }, [
           h('button', { key: 'imp', className: 'wg-btn', disabled: busy, onClick: () => fileRef.current?.click() }, '导入 JSON / PNG 卡'),
           h('input', {
             key: 'file', type: 'file', accept: '.json,.png,image/png', ref: fileRef, style: { display: 'none' },
             onChange: (event) => { const file = event.target.files?.[0]; event.target.value = ''; importFile(file); },
           }),
-          h('span', { key: 'h', className: 'wg-hint' }, 'PNG 只读 tEXt 的 chara / ccv3（ccv3 优先），仅在本机解析；内置世界书自动导入并关联，不执行卡内脚本'),
+          h('span', { key: 'h', className: 'wg-hint' }, '导入 JSON 或 PNG 角色卡，内置世界书自动关联。脚本是否运行由扩展来源开关控制。'),
         ]),
         cards.length === 0 ? h('div', { key: 'empty', className: 'wg-empty' }, '还没有角色卡') : null,
-        ...cards.map((card) => h('div', { key: card.id, className: 'wg-item' }, [
+        h(SearchInput,{key:'search',query,onChange:setQuery,label:'搜索角色卡名称'}),
+        ...cards.filter(card=>matchesSearch(card,query)).map((card) => h('div', { key: card.id, className: 'wg-item' }, [
           h('div', { key: 'main', className: 'wg-item-main' }, [h('b', {}, card.name || card.id), h('span', { className: 'wg-hint' }, ` ${card.spec} · ${card.characterBook?.entries?.length ?? 0} 条世界书条目`)]),
           h('div', { key: 'ops', className: 'wg-item-ops' }, [
             h('button', { key: 'e', className: 'wg-btn wg-btn-mini', onClick: () => setEditing(card) }, '编辑'),
@@ -1328,6 +1369,21 @@ window.__ModuleLoader__.load({
     }
 
     /** 扩展：正则 / 模板 / 助手（三分区，明确列 unsupported）。 */
+    function RegexRuleForm({text,onChange}){
+      let rule;try{rule=JSON.parse(text);}catch{return h('div',{className:'wg-hint'},'JSON 尚未完整，请先修正高级编辑内容。');}
+      if(!rule||Array.isArray(rule))return null;
+      const patch=value=>onChange(JSON.stringify({...rule,...value},null,2));
+      const placement=(value,checked)=>patch({placement:checked?[...new Set([...(rule.placement??[]),value])]:(rule.placement??[]).filter(item=>item!==value)});
+      return h('div',{className:'wg-card','aria-label':'正则编辑'},[
+        h(Field,{key:'name',label:'规则名称'},h('input',{value:rule.scriptName??'',onChange:e=>patch({scriptName:e.target.value})})),
+        h(Field,{key:'find',label:'查找表达式'},h('input',{value:rule.findRegex??'',placeholder:'/pattern/g',onChange:e=>patch({findRegex:e.target.value})})),
+        h(Field,{key:'replace',label:'替换内容'},h('textarea',{value:rule.replaceString??'',onChange:e=>patch({replaceString:e.target.value})})),
+        h('div',{key:'targets',className:'wg-row'},[[1,'用户消息'],[2,'助手消息']].map(([value,label])=>h('label',{key:value},[h('input',{type:'checkbox',checked:(rule.placement??[]).includes(value),onChange:e=>placement(value,e.target.checked)}),label]))),
+        h('div',{key:'channels',className:'wg-row'},[['promptOnly','发送给模型'],['markdownOnly','写作阅读显示'],['runOnEdit','编辑后重算']].map(([key,label])=>h('label',{key},[h('input',{type:'checkbox',checked:rule[key]===true,onChange:e=>patch({[key]:e.target.checked})}),label]))),
+        h('div',{key:'hint',className:'wg-hint'},'替换为空可隐藏匹配片段。未勾选发送或显示时按通用文本规则处理。'),
+      ]);
+    }
+
     function ExtensionsPanel({ data, notify, fail, scopeSession, onScopeSessionChange }) {
       const [section,setSection]=useState('regex'),[state,setState]=useState(null),[sessions,setSessions]=useState([]);
       const [inspect,setInspect]=useState(false),[presetId,setPresetId]=useState(''),[cardId,setCardId]=useState('');
@@ -1410,7 +1466,7 @@ window.__ModuleLoader__.load({
         section!=='template'?h('div',{key:'owner',className:'wg-card'},[
           h('h4',{},labels[source.type]+'：'+source.name),
           kind==='regex'&&source.type==='global'?h('div',{className:'wg-hint'},'全局正则按各条目启停状态执行。'):button(allowed?'停用此来源':'启用此来源',()=>act(()=>api('POST','/extensions/scope/allowed',{scope,kind,enabled:!allowed}))),
-          h('div',{className:'wg-hint'},kind==='regex'?'执行顺序：全局 → 当前预设 → 当前角色卡。来源开关与单条开关分别生效。':'来源、文件夹、脚本三层开关分别生效。运行器仍限基础API和手动执行；完整宿主事件、DOM、网络尚未支持。'),
+          h('div',{className:'wg-hint'},kind==='regex'?'执行顺序：全局 → 当前预设 → 当前角色卡。显示规则在同一会话的“写作阅读”生效。':'来源、文件夹、脚本三层开关分别生效。常驻模式支持部分事件、MVU、按钮和独立脚本界面；联网和宿主历史改写暂不支持。'),
           ...renderItems(items),!items.length?h('div',{className:'wg-hint'},'该来源暂无附带条目。'):null,
           h('div',{className:'wg-bar'},[
             button('新建',()=>{setEditor({scope,kind,revision:rev,path:null,items:JSON.parse(JSON.stringify(items))});setText(JSON.stringify(kind==='regex'?{scriptName:'新正则',findRegex:'/旧词/g',replaceString:'新词',placement:[2],promptOnly:true,disabled:false,trimStrings:[],minDepth:null,maxDepth:null}:{type:'script',name:'新脚本',enabled:false,content:'console.log(getVariables());',data:{},button:{enabled:true,buttons:[]}},null,2));}),
@@ -1418,7 +1474,11 @@ window.__ModuleLoader__.load({
             button('导出此来源',download),
             h('label',{className:'wg-btn'},['选择 JSON 文件',h('input',{type:'file',accept:'.json,application/json',style:{display:'none'},disabled:busy,onChange:async e=>{try{setEditor({scope,kind,revision:rev,import:true});setText(await e.target.files[0].text());}catch(x){fail(x);}e.target.value='';}})]),
           ]),
-          h(Field,{label:'条目 JSON / 导入内容'},h('textarea',{value:text,onChange:e=>{setText(e.target.value);if(!editor)setEditor({scope,kind,revision:rev,import:true});}})),
+          kind==='regex'&&editor&&!editor.import?h(RegexRuleForm,{text,onChange:setText}):null,
+          h('details',{key:'json',className:'wg-disclosure',open:editor?.import===true},[
+            h('summary',{key:'summary'},editor?.import?'导入 JSON':'高级 JSON 编辑'),
+            h('div',{key:'body',className:'wg-disclosure-body'},h(Field,{label:'条目 JSON / 导入内容'},h('textarea',{value:text,onChange:e=>{setText(e.target.value);if(!editor)setEditor({scope,kind,revision:rev,import:true});}}))),
+          ]),
           button(editor?.import?'导入到所选来源':'保存到所属素材',()=>act(async()=>{
             if(!editor)throw Error('请先选择编辑或导入');const item=JSON.parse(text);
             if(editor.import||editor.path===null)return api('POST','/extensions/scope/import',{...editor,data:item});
@@ -1429,7 +1489,7 @@ window.__ModuleLoader__.load({
         section==='regex'?h('div',{key:'preview',className:'wg-card'},[
           h('h4',{},'预览当前来源组合（遵循各来源和条目开关）'),
           h('div',{className:'wg-bar'},[
-            h('select',{value:mode,onChange:e=>setMode(e.target.value)},[h('option',{value:'send'},'发送给模型'),h('option',{value:'display'},'显示预览（不改变聊天正文）')]),
+            h('select',{value:mode,onChange:e=>setMode(e.target.value)},[h('option',{value:'send'},'发送给模型'),h('option',{value:'display'},'写作阅读显示效果')]),
             h('select',{value:placement,onChange:e=>setPlacement(Number(e.target.value))},[h('option',{value:1},'用户消息'),h('option',{value:2},'助手消息')]),
             h('input',{type:'number',min:0,value:depth,onChange:e=>setDepth(Number(e.target.value)),style:{width:80},'aria-label':'消息深度'}),
           ]),h('textarea',{value:previewText,onChange:e=>setPreviewText(e.target.value),'aria-label':'正则测试文本'}),
@@ -1447,6 +1507,7 @@ window.__ModuleLoader__.load({
     }
 
     function WorksPanel({ data, reload, notify, fail }) {
+      const [query,setQuery]=useState('');
       const [creating, setCreating] = useState(false);
       const [works, setWorks] = useState([]);
       const [current, setCurrent] = useState(null);
@@ -1544,7 +1605,8 @@ window.__ModuleLoader__.load({
           h('button', { key: 'rf', className: 'wg-btn', onClick: refreshWorks }, '刷新'),
           h('span', { key: 'n', className: 'wg-hint' }, `${works.length} 个作品 · 生成走本插件自己的请求通道（不经 DSH 会话历史）`),
         ]),
-        ...works.map((work) => h('div', {
+        h(SearchInput,{key:'search',query,onChange:setQuery,label:'搜索旧版作品'}),
+        ...works.filter(work=>matchesSearch(work,query)).map((work) => h('div', {
           key: work.id,
           className: 'wg-item',
           'data-active': String(current?.id === work.id),
@@ -1693,6 +1755,10 @@ window.__ModuleLoader__.load({
           }, label))),
         ]),
         h('div', { key: 'body', className: 'wg-body'+(tab==='config'?' wg-body-config':'') }, [
+          tab!=='config'?h('header',{key:'page-heading',className:'wg-page-heading'},[
+            h('h2',{key:'title'},({cards:'角色卡',ext:'扩展',inject:'注入设置',worlds:'世界书',presets:'预设',works:'旧版作品'})[tab]),
+            h('p',{key:'description'},({cards:'管理角色设定与开场白，关联世界书随卡片保存。',ext:'按来源管理正则、模板与助手，设置只影响对应素材。',inject:'管理提示词的注入规则，并用预览核对效果。',worlds:'管理世界设定与关键词条目，在写作配置中选择要使用的书。',presets:'管理提示词顺序、角色和 SPreset 扩展配置。',works:'查看与导出旧版作品。新的创作建议使用正常写作会话。'})[tab]),
+          ]):null,
           message ? h('div', { key: 'ok', className: 'wg-ok' }, message) : null,
           error ? h('div', { key: 'err', className: 'wg-err' }, error) : null,
           !data
@@ -1779,9 +1845,67 @@ window.__ModuleLoader__.load({
         h('div',{'data-writing-panel-content':true,style:{boxSizing:'border-box',width:'100%',maxWidth:'var(--dsh-composer-card-max-width, 952px)',margin:'0 auto',display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',fontSize:12,lineHeight:'20px',padding:'4px 0',color:'var(--dsw-alias-label-secondary, inherit)',overflowWrap:'anywhere'}},content));
     }
 
+    function ReadingFrame({html}){
+      const frame=useRef(null);
+      useEffect(()=>{
+        let observer;const node=frame.current;
+        const resize=()=>{try{const height=Math.min(7000,Math.max(32,node.contentDocument.body.scrollHeight+20));node.style.height=height+'px';}catch{}};
+        const ready=()=>{resize();try{observer=new ResizeObserver(resize);observer.observe(node.contentDocument.body);}catch{}};
+        node.addEventListener('load',ready);return()=>{node.removeEventListener('load',ready);observer?.disconnect();};
+      },[html]);
+      const doc='<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; base-uri \'none\'; form-action \'none\'"><style>:root{color-scheme:light dark}body{margin:0;padding:4px;font:15px/1.75 system-ui;overflow-wrap:anywhere}p{margin:.5em 0}pre{overflow:auto;white-space:pre-wrap}img{max-width:100%}table{border-collapse:collapse}td,th{border:1px solid #8886;padding:6px}details{padding:8px;border:1px solid #8884;border-radius:8px}</style>'+html;
+      return h('iframe',{ref:frame,title:'写作正文',sandbox:'allow-same-origin',srcDoc:doc,style:{border:0,width:'100%',display:'block',minHeight:40,colorScheme:'inherit'}});
+    }
+    function WritingReadingView({sessionId,useProjection,useSession}){
+      const preset=useProjection('agentPreset'),running=useSession(s=>s.running);
+      const [data,setData]=useState(null),[error,setError]=useState(''),[raw,setRaw]=useState(false),[showRuntime,setShowRuntime]=useState(false);
+      useEffect(()=>{
+        let active=true,pending=false;setData(null);setError('');
+        const load=async()=>{if(!active||pending||preset!=='writer')return;pending=true;try{const next=await api('GET','/reading?sessionId='+encodeURIComponent(sessionId));if(active){setData(next);setError('');}}catch(e){if(active)setError(e.message);}finally{pending=false;}};
+        void load();const timer=setInterval(load,4000);return()=>{active=false;clearInterval(timer);};
+      },[sessionId,preset,running]);
+      if(preset!=='writer')return h('div',{style:{padding:24}},'写作阅读仅用于写作模式会话。');
+      return h('section',{'data-writing-reading':true,style:{boxSizing:'border-box',width:'100%',maxWidth:'var(--dsh-composer-card-max-width, 952px)',margin:'0 auto',padding:'20px 16px',display:'flex',flexDirection:'column',gap:18}},[
+        h('div',{key:'bar',style:{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}},[
+          h('strong',{key:'title'},'写作阅读'),h('span',{key:'hint',style:{opacity:.65,fontSize:12}},'显示处理不改变原始对话'),
+          h('button',{key:'runtime',type:'button',onClick:()=>setShowRuntime(value=>!value)},showRuntime?'收起脚本界面':'脚本界面'),
+          h('label',{key:'raw',style:{marginLeft:'auto',fontSize:12}},[h('input',{key:'i',type:'checkbox',checked:raw,onChange:e=>setRaw(e.target.checked)}),' 显示原文']),
+        ]),
+        showRuntime?h(RuntimeSurface,{key:sessionId,sessionId}):null,
+        error?h('div',{key:'error',role:'alert'},error):null,
+        !data?h('div',{key:'loading'},'读取正文…'):!data.messages.length?h('div',{key:'empty'},'在下方输入框发送消息，回复完成后会在这里显示。'):null,
+        ...(data?.messages??[]).map(row=>h('article',{key:row.id,style:{minWidth:0,padding:row.role==='user'?'12px 16px':'8px 0',borderRadius:12,background:row.role==='user'?'var(--dsw-alias-bg-layer-1, #8881)':'transparent'}},[
+          h('div',{key:'role',style:{fontSize:11,opacity:.6,marginBottom:5}},row.role==='user'?'你':'正文'),
+          raw?h('pre',{key:'raw',style:{whiteSpace:'pre-wrap',font:'inherit'}},row.original):row.hidden?h('details',{key:'hidden'},[h('summary',{key:'s'},'此消息已按显示规则隐藏'),h('pre',{key:'p',style:{whiteSpace:'pre-wrap',font:'inherit'}},row.original)]):h(ReadingFrame,{key:'html',html:row.html}),
+        ])),
+        running?h('div',{key:'running',style:{opacity:.6}},'正在生成，完成后更新正文…'):null,
+      ]);
+    }
+    function RuntimeSurface({sessionId}){
+      const [surface,setSurface]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[text,setText]=useState('');
+      const refresh=useCallback(async()=>{try{const value=await api('GET','/runtime-surface?sessionId='+encodeURIComponent(sessionId));setSurface(value);setError('');}catch(e){setError(e.message);}},[sessionId]);
+      useEffect(()=>{setSurface(null);void refresh();},[refresh]);
+      const send=async input=>{setBusy(true);try{await api('POST','/session-panel/action',{sessionId,action:input?'surface':'activate',...(input?{input}:{})});await refresh();}catch(e){setError(e.message);}finally{setBusy(false);}};
+      return h('section',{'aria-label':'脚本界面',style:{border:'1px solid #8885',borderRadius:12,padding:12,display:'flex',flexDirection:'column',gap:8}},[
+        h('div',{key:'toolbar',style:{display:'flex',gap:8,flexWrap:'wrap'}},[
+          h('button',{key:'start',disabled:busy,onClick:()=>send(null)},'启动 / 恢复'),h('button',{key:'refresh',disabled:busy,onClick:refresh},'刷新界面'),
+          ...[['up','向上滚动',-350],['down','向下滚动',350]].map(([key,label,dy])=>h('button',{key,disabled:busy,onClick:()=>send({type:'scroll',dy})},label)),
+        ]),
+        error?h('div',{key:'error',role:'alert'},error):null,
+        surface?h('img',{key:'image',alt:'隔离运行中的助手脚本界面',src:surface.image,style:{width:'100%',cursor:busy?'wait':'pointer',borderRadius:6},onClick:event=>{if(busy)return;const box=event.currentTarget.getBoundingClientRect();void send({type:'click',x:(event.clientX-box.left)*surface.width/box.width,y:(event.clientY-box.top)*surface.height/box.height});}}):null,
+        h('div',{key:'input',style:{display:'flex',gap:6,flexWrap:'wrap'}},[
+          h('input',{key:'text',value:text,placeholder:'先点击脚本界面的输入框，再输入文字','aria-label':'脚本输入文字',onChange:event=>setText(event.target.value),style:{flex:1,minWidth:180}}),
+          h('button',{key:'type',disabled:busy||!text,onClick:()=>send({type:'text',text})},'输入'),
+          ...['Enter','Escape','Tab','Backspace'].map(key=>h('button',{key,disabled:busy,onClick:()=>send({type:'key',key})},key)),
+        ]),
+        h('small',{key:'hint'},'界面在独立浏览器中运行。点击图中的控件可交互；涉及改写原聊天记录的操作暂不支持。'),
+      ]);
+    }
+
     return {
       inject: ['slots'],
       apply(ctx) {
+        ctx.slots.inject('conversation.view',()=>ctx.slots.register({name:'conversation.view',id:'writing-reading',order:5,label:'写作阅读'},WritingReadingView));
         // DSH hides composer.dock on its empty-session hero. input.dock is shared by both layouts.
         ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({name:'conversation.input.dock',id:'writing-guide-session',order:30}, WritingSessionPanel));
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({

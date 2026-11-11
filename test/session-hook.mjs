@@ -353,5 +353,12 @@ const collect = async (stream) => {
   assert.equal(diagnostics.get('custom').context, 32768);
 }
 
+{
+  const sent=[];
+  const bindings=new BindingCache({bindings:{note:{presetId:'p',provider:'catiecli',model:'m',authorNote:'SYNTHETIC_SESSION_NOTE'}}});
+  const hook=makeHook({bindings,transport:async args=>{sent.push(args.plan.messages);return {ok:true,finish:'stop',content:'ACK'};}});
+  await collect(hook({sessionId:'note',messages},()=>{throw Error('unexpected delegation');}));
+  assert.ok(sent[0].some(row=>row.content==='SYNTHETIC_SESSION_NOTE'),'the author note saved on a writing binding reaches the request');
+}
 await rm(root, { recursive: true, force: true });
 console.log('session-hook: 全部通过');

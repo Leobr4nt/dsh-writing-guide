@@ -30,6 +30,9 @@ import { BindingCache } from './lib/session-bindings.js';
 import { ExtensionStore } from './lib/extension-store.js';
 import { runTemplateBatch, runHelperScript } from './lib/extension-runtime.js';
 import { registerSessionHook } from './lib/session-hook.js';
+import {spresetOutput,spresetFinalRequest,spresetTool} from './lib/spreset.js';
+import Ajv from 'ajv';
+import {estimateTokens} from './lib/budget.js';
 
 export const inject = ['webServer'];
 
@@ -201,13 +204,40 @@ export function apply(ctx, config = {}) {
       model: route.model,
     });
     const apiKey = await resolveTransportKey({ credentials: service('credentials'), apiKeyEnv: config.apiKeyEnv });
-    const body = buildChatBody({
+    let body = buildChatBody({
       model: config.model,
       messages: plan.messages,
       maxTokens,
       temperature,
     });
-    return postChatCompletion({ baseURL: config.baseURL, apiKey, body, signal });
+    if(plan.spreset?.tools?.length)body.tools=plan.spreset.tools;
+    if(plan.spreset?.stop)body.stop=plan.spreset.stop;
+    body=await spresetFinalRequest(plan.spreset?.config,body,{signal,provider:config.provider});
+    const validators=new Map();const ajv=new Ajv({strict:false,allErrors:false});
+    for(const tool of plan.spreset?.tools??[])validators.set(tool.function.name,ajv.compile(tool.function.parameters));
+    let combinedUsage=null;
+    for(let round=0;round<4;round++){
+      const available=plan.meta?.budget?.available;
+      const cost=estimateTokens(JSON.stringify(body.messages))+estimateTokens(JSON.stringify(body.tools??[]));
+      if(available>0&&cost>available)throw Error('SPRESET_CONTEXT_LIMIT');
+      const result=await postChatCompletion({baseURL:config.baseURL,apiKey,body,signal});
+      if(result.usage){combinedUsage??={inputTokens:0,outputTokens:0,totalTokens:0};for(const key of Object.keys(combinedUsage))combinedUsage[key]+=Number(result.usage[key]??0);result.usage={...combinedUsage};}
+      if(result.finish!=='tool_calls'){
+        if(result.ok)result.content=await spresetOutput(plan.spreset?.config,result.content,{signal});
+        if(result.ok&&!result.content.trim())return {...result,ok:false,finish:'empty-output'};
+        return result;
+      }
+      if(!result.toolCalls?.length||result.toolCalls.length>16||round===3)throw Error('SPRESET_TOOL_ROUND_LIMIT');
+      body.messages.push({role:'assistant',content:result.content,tool_calls:result.toolCalls});
+      for(const call of result.toolCalls){
+        const codes=plan.spreset?.toolCode??{},name=call.function?.name;
+        if(!Object.hasOwn(codes,name)||typeof codes[name]!=='string')throw Error('SPRESET_TOOL_NOT_BOUND');
+        const code=codes[name];
+        let args;try{args=JSON.parse(call.function.arguments||'{}');}catch{throw Error('SPRESET_TOOL_ARGUMENTS');}
+        if(!validators.get(call.function.name)?.(args))throw Error('SPRESET_TOOL_ARGUMENT_SCHEMA');
+        const value=await spresetTool(code,args,{signal});body.messages.push({role:'tool',tool_call_id:call.id,content:typeof value==='string'?value:JSON.stringify(value??null)});
+      }
+    }
   };
 
   const generate = (request) => generateForWork({
@@ -342,7 +372,7 @@ export function apply(ctx, config = {}) {
         const parts=Array.isArray(message.content)?message.content:[];
         if(parts.some(block=>block.type==='tool-call'))return [];
         const content=parts.filter(block=>block.type==='text').map(block=>block.text??'').join('');
-        return content.trim()?[{role:message.role,content}]:[];
+        return content.trim()?[{id:message.id??String(event.seq??''),role:message.role,content}]:[];
       });
       return {writer:true,preset:info.preset,messages};
     } catch(error) { return {writer:false,messages:[],error:String(error?.message??error)}; }

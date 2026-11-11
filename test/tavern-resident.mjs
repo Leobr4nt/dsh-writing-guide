@@ -36,6 +36,13 @@ try {
   await assert.rejects(runtime.clickButton('a','Hidden'),/BUTTON_NOT_AVAILABLE/);
   await assert.rejects(runtime.clickButton('other','Next'),/BUTTON_NOT_AVAILABLE/);
   assert.equal(await runtime.page.evaluate(()=>typeof $.fn.draggable),'function');
+  await runtime.page.evaluate(()=>{
+    const button=document.createElement('button');button.textContent='Surface fixture';button.id='surface-fixture';button.onclick=()=>insertOrAssignVariables({surfaceClicked:true});document.body.prepend(button);
+  });
+  const box=await runtime.page.locator('#surface-fixture').boundingBox();
+  assert.equal((await runtime.interact({type:'click',x:box.x+box.width/2,y:box.y+box.height/2})).variables.chat.surfaceClicked,true);
+  const surface=await runtime.surface();assert.ok(surface.image.startsWith('data:image/png;base64,'));assert.ok(surface.width>0);
+  await assert.rejects(runtime.interact({type:'key',key:'Control+R'}),/SURFACE_KEY/);
   await runtime.page.evaluate(async()=>{try{await fetch('https://example.invalid/private-fixture');}catch{}});
   assert.ok((await runtime.status()).blockedRequests>0);
   await runtime.loadScripts([{id:'protected',content:'throw Error("PRIVATE_SENTINEL");'}]);await runtime.settle(100);

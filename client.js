@@ -51,14 +51,14 @@ window.__ModuleLoader__.load({
     const CSS = `
 .wg-glyph { display: inline-flex; align-items: center; justify-content: center; }
 .wg-root { width: 100%; height: 100%; min-height: 0; min-width: 0; display: flex; }
-.wg-app { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden;
+.wg-app { width: 100%; height: 100%; min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size;
   background: var(--dsw-alias-bg-base, #f7f5ef); color: var(--dsw-alias-label-primary, #16140f);
   font: 13px/1.55 system-ui, "Microsoft YaHei UI", sans-serif; }
-.wg-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--dsw-alias-border-l1, #c9c3b6);
+.wg-head { display: flex; align-items: center; gap: 22px; padding: 12px 24px; flex: none; border-bottom: 1px solid var(--dsw-alias-border-l1, #c9c3b6);
   background: var(--dsw-alias-bg-layer-1, #fffcf7); }
-.wg-title { font-weight: 650; font-size: 14px; }
-.wg-tabs { display: flex; gap: 2px; margin-left: 8px; }
-.wg-tabs button { font: inherit; font-size: 12.5px; padding: 5px 11px; border: 0; background: transparent; cursor: pointer;
+.wg-title { font-weight: 650; font-size: 14px; white-space: nowrap; }
+.wg-tabs { display: flex; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.wg-tabs button { font: inherit; font-size: 12.5px; padding: 7px 11px; flex: none; white-space: nowrap; border: 0; background: transparent; cursor: pointer;
   color: var(--dsw-alias-label-secondary, #5c564c); border-radius: 7px; }
 .wg-tabs button[aria-selected="true"] { background: var(--dsw-alias-bg-layer-2, #efe9df); color: var(--dsw-alias-label-primary, #16140f); font-weight: 600; }
 .wg-body { flex: 1; min-height: 0; overflow: auto; padding: 14px 18px 28px; display: flex; flex-direction: column; gap: 12px; }
@@ -125,6 +125,62 @@ window.__ModuleLoader__.load({
 .wg-sub b { font-size: 13px; }
 .wg-mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; }
 .wg-tag { font-size: 10.5px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--dsw-alias-border-l1, #c9c3b6); }
+.wg-body-config { overflow: hidden; padding: 0; gap: 0; }
+.wg-body-config > .wg-ok, .wg-body-config > .wg-err { margin: 10px 24px 0; flex: none; }
+.wg-config { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+.wg-config-scroll { flex: 1; min-height: 0; overflow: auto; padding: 24px; scrollbar-gutter: stable; }
+.wg-config-page { width: 100%; max-width: 1100px; min-width: 0; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+.wg-config-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.wg-config-heading h2 { margin: 0 0 4px; font-size: 22px; line-height: 1.35; font-weight: 650; letter-spacing: -.4px; }
+.wg-config-lead { margin: 0; color: var(--dsw-alias-label-secondary, #6d675c); font-size: 12px; }
+.wg-status-toggle { display: inline-flex; align-items: center; gap: 7px; flex: none; }
+.wg-status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dsw-alias-state-success-primary, #45a778); }
+.wg-status-dot[data-off="true"] { background: var(--dsw-alias-label-tertiary, #8a8478); }
+.wg-config-scope { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: end; column-gap: 12px; row-gap: 7px; padding-bottom: 18px; border-bottom: 1px solid var(--dsw-alias-border-l1, #d8d2c6); }
+.wg-config-scope .wg-hint { grid-column: 1 / -1; }
+.wg-config-grid { display: grid; grid-template-columns: minmax(0,1.15fr) minmax(0,1fr); align-items: start; gap: 18px; }
+.wg-config-column { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.wg-config-section { min-width: 0; padding: 18px; border-radius: 12px; border: 1px solid var(--dsw-alias-border-l1, #d8d2c6); background: var(--dsw-alias-bg-layer-1, #fffdf9); display: flex; flex-direction: column; gap: 14px; }
+.wg-config-section h3 { font-size: 14px; font-weight: 650; margin: 0; }
+.wg-config .wg-field { min-width: 0; gap: 5px; }
+.wg-config .wg-field > label { font-size: 12px; color: var(--dsw-alias-label-secondary, #6d675c); }
+.wg-config .wg-field > select, .wg-config .wg-field > input, .wg-config .wg-field > textarea { box-sizing: border-box; width: 100%; min-width: 0; min-height: 36px; padding: 7px 10px; }
+.wg-config .wg-field select { text-overflow: ellipsis; }
+.wg-config .wg-field > textarea { min-height: 90px; }
+.wg-config .wg-hint { font-size: 11.5px; overflow-wrap: anywhere; }
+.wg-config-divider { border: 0; border-top: 1px solid var(--dsw-alias-border-l1, #d8d2c6); width: 100%; margin: 0; }
+.wg-disclosure { min-width: 0; border: 1px solid var(--dsw-alias-border-l1, #d8d2c6); border-radius: 12px; background: var(--dsw-alias-bg-layer-1, #fffdf9); }
+.wg-disclosure > summary { cursor: pointer; display: flex; align-items: center; gap: 8px; list-style: none; padding: 15px 18px; font-size: 12.5px; font-weight: 600; }
+.wg-disclosure > summary::-webkit-details-marker { display: none; }
+.wg-disclosure > summary::after { content: '+'; margin-left: auto; font-size: 17px; font-weight: 400; color: var(--dsw-alias-label-secondary, #6d675c); }
+.wg-disclosure[open] > summary::after { content: '−'; }
+.wg-disclosure-body { padding: 0 18px 18px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.wg-compat-list { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 8px; overflow-wrap: anywhere; }
+.wg-config-help { color: var(--dsw-alias-label-secondary, #6d675c); }
+.wg-config-help summary { cursor: pointer; font-size: 12px; }
+.wg-config-help p { margin: 8px 0 0; max-width: 70ch; }
+.wg-config-footer { flex: none; padding: 14px 24px; border-top: 1px solid var(--dsw-alias-border-l1, #d8d2c6); background: var(--dsw-alias-bg-layer-1, #fffdf9); }
+.wg-config-footer-inner { max-width: 1100px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.wg-config-save-state { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wg-config-save-state strong { font-size: 12px; font-weight: 550; }
+.wg-config-save-state[data-dirty="true"] strong { color: var(--dsw-alias-label-primary, #16140f); }
+.wg-config-footer .wg-btn-primary { padding: 9px 20px; }
+.wg-config-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: none; }
+@container (max-width: 760px) {
+  .wg-config-grid { grid-template-columns: minmax(0,1fr); }
+  .wg-config-scroll { padding: 18px 16px; }
+  .wg-head { padding: 10px 16px; gap: 14px; flex-wrap: wrap; }
+  .wg-tabs { width: 100%; }
+  .wg-config-footer { padding: 12px 16px; }
+}
+@container (max-width: 420px) {
+  .wg-config-heading { align-items: flex-start; }
+  .wg-config-heading h2 { font-size: 20px; }
+  .wg-config-section { padding: 16px; }
+  .wg-config-footer-inner { align-items: stretch; flex-direction: column; gap: 8px; }
+  .wg-config-actions { justify-content: flex-end; }
+  .wg-config-footer .wg-hint { display: none; }
+}
 `;
 
     function Styles() {
@@ -132,7 +188,15 @@ window.__ModuleLoader__.load({
     }
 
     function Field({ label, children }) {
-      return h('div', { className: 'wg-field' }, [h('label', { key: 'l' }, label), children]);
+      const id=React.useId();
+      let controlId;
+      const content=React.Children.map(children,child=>{
+        if(React.isValidElement(child)&&['input','select','textarea'].includes(child.type)){
+          controlId=child.props.id||id;return React.cloneElement(child,{id:controlId});
+        }
+        return child;
+      });
+      return h('div', { className: 'wg-field' }, [h('label', { key: 'l',htmlFor:controlId }, label), content]);
     }
 
     function toListText(list) {
@@ -1056,142 +1120,108 @@ window.__ModuleLoader__.load({
       const worldMode = draft.worldSelection ?? ((draft.worldIds ?? []).length ? 'selected' : 'all');
       const sessionLabel = (session) => `${session.title || '（无标题）'} · ${String(session.id).slice(-6)}${session.preset === 'writer' ? '' : '（非写作模式）'}`;
 
-      return h('div', {}, [
-        h('div', { key: 'note', className: 'wg-card' }, [
-          h('h4', { key: 'h' }, '写作模式怎么用'),
-          h('div', { key: 'b', className: 'wg-hint' },
-            '这里的配置是「写作模式」会话的默认值。去 DSH 新建会话 → 选「写作模式」→ 在正常聊天输入框里写。'
-            + '本页只做配置与素材管理，不提供单独的生成入口。'),
-        ]),
-        h('div', { key: 'target', className: 'wg-card' }, [
-          h('h4', { key: 'h' }, '编辑目标'),
-          h('div', { key: 'row', className: 'wg-row' }, [
-            h('label', { key: 'l' }, '默认配置 / 某个会话',
-              h('select', {
-                key: 'sel',
-                value: target,
-                onChange: (event) => setTarget(event.target.value),
-              }, [h('option', { key: '', value: '' }, '默认配置（所有写作会话）')].concat(
-                (Array.isArray(sessions) ? sessions : []).map((session) => h('option', {
-                  key: session.id,
-                  value: session.id,
-                  disabled: session.preset !== 'writer',
-                }, sessionLabel(session))),
-              ))),
-            h('button', {
-              key: 'r', className: 'wg-btn wg-btn-mini',
-              onClick: async () => {
-                try {
-                  const value = await call('/sessions');
-                  setSessions(Array.isArray(value?.sessions) ? value.sessions : []);
-                  notify('会话已刷新');
-                } catch (error) { fail(error); }
-              },
-            }, '刷新会话'),
+      const currentPreset=(data.presets??[]).find(preset=>preset.id===draft.presetId);
+      const compat=currentPreset?.compat;
+      const compatGroups=[
+        {label:'部分支持',items:compat?.partial??[]},
+        {label:'暂未执行',items:compat?.unsupported??[]},
+      ].filter(group=>group.items.length);
+      const compatCount=compatGroups.reduce((count,group)=>count+group.items.length,0);
+      const refreshSessions=async()=>{
+        try{const value=await call('/sessions');setSessions(Array.isArray(value?.sessions)?value.sessions:[]);notify('会话已刷新');}
+        catch(error){fail(error);}
+      };
+      const toggleEnabled=async()=>{
+        try{const state=await api('POST','/bindings',{enabled:!bindings.enabled});setBindings(state);notify(state.enabled?'写作模式已启用':'写作模式已停用');}
+        catch(error){fail(error);}
+      };
+
+      return h('div',{className:'wg-config'},[
+        h('div',{key:'scroll',className:'wg-config-scroll'},h('div',{className:'wg-config-page'},[
+          h('header',{key:'heading',className:'wg-config-heading'},[
+            h('div',{key:'title'},[h('h2',{key:'h'},'写作配置'),h('p',{key:'p',className:'wg-config-lead'},'搭配素材与模型，回到写作模式会话开始创作。')]),
+            h('button',{key:'enabled',type:'button',className:'wg-btn wg-status-toggle',disabled:saving||dirty,onClick:toggleEnabled,title:dirty?'先保存配置再切换启用状态':bindings.enabled?'点击停用写作模式':'点击启用写作模式','aria-label':bindings.enabled?'停用写作模式':'启用写作模式'},[
+              h('span',{key:'dot',className:'wg-status-dot','data-off':String(!bindings.enabled),'aria-hidden':true}),bindings.enabled?'已启用':'已停用',
+            ]),
           ]),
-          h('div', { key: 'hint', className: 'wg-hint' },
-            target
-              ? '正在编辑：该会话的独立配置。保存只影响这个会话，默认配置不变。'
-              : '正在编辑：默认配置。它只影响**没有单独绑定**的写作会话。'),
-        ]),
-        h(Field, { key: 'p', label: '预设' },
-          h('select', {
-            value: draft.presetId ?? '',
-            onChange: (event) => set({ presetId: event.target.value }),
-          }, [h('option', { key: '', value: '' }, '（不注入预设）')].concat(
-            (data.presets ?? []).map((preset) => h('option', { key: preset.id, value: preset.id }, preset.name || preset.id)),
-          ))),
-        (() => {
-          const current = (data.presets ?? []).find((preset) => preset.id === (draft.presetId ?? ''));
-          if (!current?.compat) return null;
-          const lines = [];
-          if (current.compat.partial?.length) lines.push(`部分：${current.compat.partial.join('；')}`);
-          if (current.compat.unsupported?.length) lines.push(`仅保留数据：${current.compat.unsupported.join('；')}`);
-          if (!lines.length) return null;
-          return h('div', { key: 'compat', className: 'wg-card' }, [
-            h('h4', { key: 'h' }, `导入兼容性：${current.name || current.id}`),
-            ...lines.map((line, index) => h('div', { key: `l${index}`, className: 'wg-hint' }, line)),
-          ]);
-        })(),
-        h(Field, { key: 'ws', label: '世界书范围' },
-          h('select', {
-            value: worldMode,
-            onChange: (event) => set({ worldSelection: event.target.value }),
-          }, [
-            h('option', { key: 'all', value: 'all' }, '全部世界书'),
-            h('option', { key: 'selected', value: 'selected' }, '只用手动指定的'),
-            h('option', { key: 'none', value: 'none' }, '不用全局书（只用卡内书）'),
-          ])),
-        worldMode === 'selected'
-          ? h(Field, { key: 'w', label: '指定世界书（可多选）' },[
-            h(WorldbookMultiSelect,{key:'picker',worlds:data.worlds??[],value:draft.worldIds??[],disabled:saving,onChange:worldIds=>set({worldSelection:'selected',worldIds})}),
-            h('span',{key:'hint',className:'wg-hint'},'角色卡关联的世界书会自动加入；与这里重复选择时只使用一次。'),
-          ])
-          : null,
-        h(Field, { key: 'c', label: '角色卡' },
-          h('select', {
-            value: draft.cardId ?? '',
-            onChange: (event) => set({ cardId: event.target.value }),
-          }, [h('option', { key: '', value: '' }, '（不用角色卡）')].concat(
-            cards.map((card) => h('option', { key: card.id, value: card.id }, card.name || card.id)),
-          ))),
-        h(Field, { key: 'm', label: '实际使用的模型（写作端点）' },
-          h('select', {
-            value: draft.provider && draft.model ? `${draft.provider}/${draft.model}` : '',
-            onChange: (event) => {
-              const [provider, ...rest] = event.target.value.split('/');
-              return set({ provider, model: rest.join('/') });
-            },
-          }, [h('option', { key: '', value: '' }, '（未选择）')].concat(
-            (data.routes ?? []).map((route) => h('option', { key: `${route.provider}/${route.model}`, value: `${route.provider}/${route.model}` },
-              `${route.provider} / ${route.model}（写作通道）`)),
-          ))),
-        h('div', { key: 'advanced', className: 'wg-card' }, [
-          h('h4', { key: 'h' }, '高级：输出长度 / 上下文 / 作者注'),
-          h('div', { key: 'row', className: 'wg-row' }, [
-            h('label', { key: 'mt' }, '输出长度（max_tokens，0=默认 4096）',
-              h('input', {
-                key: 'i', type: 'number', min: 0, step: 128, style: { width: '110px' },
-                value: draft.maxTokens ?? 0,
-                onChange: (event) => set({ maxTokens: Number(event.target.value) || 0 }),
-              })),
-            h('label', { key: 'cw' }, '上下文窗口（0=按模型元数据）',
-              h('input', {
-                key: 'i', type: 'number', min: 0, step: 1024, style: { width: '120px' },
-                value: draft.contextWindow ?? 0,
-                onChange: (event) => set({ contextWindow: Number(event.target.value) || 0 }),
-              })),
+          h('div',{key:'scope',className:'wg-config-scope'},[
+            h(Field,{key:'target',label:'配置应用于'},h('select',{value:target,disabled:saving,onChange:event=>setTarget(event.target.value)},[
+              h('option',{key:'default',value:''},'默认配置'),
+              ...(Array.isArray(sessions) ? sessions : []).map(session=>h('option',{key:session.id,value:session.id,disabled:session.preset!=='writer'},sessionLabel(session))),
+            ])),
+            h('button',{key:'refresh',type:'button',className:'wg-btn',disabled:saving,onClick:refreshSessions},'刷新会话'),
+            h('div',{key:'hint',className:'wg-hint'},target?'仅影响所选会话；其他会话继续使用原来的配置。':'用于未设置独立配置的写作会话。'),
           ]),
-          h(Field, { key: 'an', label: '作者注（没有 authorsNote marker 时按 depth 4 / system 插入）' },
-            h('textarea', {
-              style: { minHeight: '60px' },
-              value: draft.authorNote ?? '',
-              onChange: (event) => set({ authorNote: event.target.value }),
-            })),
-          h('div', { key: 'tip', className: 'wg-hint' },
-            '输出长度与预算/请求同值：取这里与模型元数据中更小的一侧；0 表示产品默认 4096，不会沿用宿主会话的 256000。'),
-        ]),
-        h('div', { key: 'actions', className: 'wg-row' }, [
-          h('button', {
-            key: 'save', className: 'wg-btn wg-btn-primary', disabled: saving || !dirty,
-            onClick: save,
-          }, target ? '保存此会话配置' : '保存默认配置'),
-          dirty ? h('span', { key: 'd', className: 'wg-hint' }, '有未保存的改动') : null,
-          target
-            ? h('button', { key: 'reset', className: 'wg-btn', disabled: saving, onClick: resetToDefault }, '恢复默认')
-            : null,
-          h('button', {
-            key: 'toggle', className: 'wg-btn',
-            disabled: saving,
-            onClick: async () => {
-              try {
-                const state = await api('POST', '/bindings', { enabled: !bindings.enabled });
-                setBindings(state);
-                notify(state.enabled ? '写作模式已启用' : '写作模式已停用');
-              } catch (error) { fail(error); }
-            },
-          }, bindings.enabled ? '停用写作模式' : '启用写作模式'),
-        ]),
+          h('div',{key:'grid',className:'wg-config-grid'},[
+            h('section',{key:'materials',className:'wg-config-section','aria-label':'写作素材'},[
+              h('h3',{key:'heading'},'写作素材'),
+              h(Field,{key:'preset',label:'预设'},h('select',{value:draft.presetId??'',disabled:saving,onChange:event=>set({presetId:event.target.value})},[
+                h('option',{key:'none',value:''},'不使用预设'),
+                ...(data.presets??[]).map(preset=>h('option',{key:preset.id,value:preset.id},preset.name||preset.id)),
+              ])),
+              h(Field,{key:'card',label:'角色卡'},h('select',{value:draft.cardId??'',disabled:saving,onChange:event=>set({cardId:event.target.value})},[
+                h('option',{key:'none',value:''},'不使用角色卡'),
+                ...cards.map(card=>h('option',{key:card.id,value:card.id},card.name||card.id)),
+              ])),
+              h('hr',{key:'divider',className:'wg-config-divider'}),
+              h(Field,{key:'world-mode',label:'世界书范围'},h('select',{value:worldMode,disabled:saving,onChange:event=>set({worldSelection:event.target.value})},[
+                h('option',{key:'all',value:'all'},'全部世界书'),
+                h('option',{key:'selected',value:'selected'},'只用手动指定的'),
+                h('option',{key:'none',value:'none'},'仅使用角色卡关联书'),
+              ])),
+              worldMode==='selected'?h(Field,{key:'worlds',label:'指定世界书（可多选）'},
+                h(WorldbookMultiSelect,{worlds:data.worlds??[],value:draft.worldIds??[],disabled:saving,onChange:worldIds=>set({worldSelection:'selected',worldIds})})):null,
+              h('div',{key:'world-hint',className:'wg-hint'},'角色卡关联书自动加入，重复选择只使用一次。'),
+            ]),
+            h('div',{key:'right',className:'wg-config-column'},[
+              h('section',{key:'model',className:'wg-config-section','aria-label':'生成设置'},[
+                h('h3',{key:'heading'},'生成设置'),
+                h(Field,{key:'model',label:'写作模型'},h('select',{
+                  value:draft.provider&&draft.model?`${draft.provider}/${draft.model}`:'',disabled:saving,
+                  onChange:event=>{const [provider,...model]=event.target.value.split('/');set({provider,model:model.join('/')});},
+                },[h('option',{key:'none',value:''},'选择模型'),...(data.routes??[]).map(route=>h('option',{key:`${route.provider}/${route.model}`,value:`${route.provider}/${route.model}`},`${route.provider} / ${route.model}`))])),
+                h(Field,{key:'tokens',label:'输出上限（token）'},[
+                  h('input',{key:'input',type:'number',min:0,step:128,value:draft.maxTokens??0,disabled:saving,onChange:event=>set({maxTokens:Number(event.target.value)||0})}),
+                  h('span',{key:'hint',className:'wg-hint'},'0 使用全局设置；未设置时为 4096。实际值受模型上限限制。'),
+                ]),
+              ]),
+              h('details',{key:'advanced',className:'wg-disclosure','data-config-advanced':true},[
+                h('summary',{key:'summary'},'高级参数'),
+                h('div',{key:'body',className:'wg-disclosure-body'},[
+                  h(Field,{key:'context',label:'上下文窗口（token）'},[
+                    h('input',{key:'input',type:'number',min:0,step:1024,value:draft.contextWindow??0,disabled:saving,onChange:event=>set({contextWindow:Number(event.target.value)||0})}),
+                    h('span',{key:'hint',className:'wg-hint'},'0 沿用全局设置或模型提供的上下文容量。'),
+                  ]),
+                  h(Field,{key:'note',label:'作者注'},[
+                    h('textarea',{key:'input',value:draft.authorNote??'',disabled:saving,placeholder:'补充叙事视角、文风或本轮写作要求',onChange:event=>set({authorNote:event.target.value})}),
+                    h('span',{key:'hint',className:'wg-hint'},'用于补充写作要求，按预设位置注入。'),
+                  ]),
+                ]),
+              ]),
+              compatCount?h('details',{key:'compat',className:'wg-disclosure','data-config-compat':true},[
+                h('summary',{key:'summary'},['预设兼容说明',h('span',{key:'count',className:'wg-tag'},`${compatCount} 项`)]),
+                h('div',{key:'body',className:'wg-disclosure-body'},compatGroups.map(group=>h('div',{key:group.label},[
+                  h('b',{key:'label'},group.label),
+                  h('ul',{key:'items',className:'wg-compat-list wg-hint'},group.items.map((item,index)=>h('li',{key:index},item))),
+                ]))),
+              ]):null,
+            ]),
+          ]),
+          h('details',{key:'help',className:'wg-config-help'},[
+            h('summary',{key:'summary'},'如何开始写作'),
+            h('p',{key:'body',className:'wg-hint'},'保存配置后，新建 DSH 会话并选择“写作模式”，直接在聊天输入框中发送写作要求。需要为不同会话使用不同素材时，在上方切换配置目标。'),
+          ]),
+        ])),
+        h('footer',{key:'footer',className:'wg-config-footer'},h('div',{className:'wg-config-footer-inner'},[
+          h('div',{key:'state',className:'wg-config-save-state','data-dirty':String(dirty),'aria-live':'polite'},[
+            h('strong',{key:'label'},saving?'正在保存…':dirty?'有未保存的更改':'配置已保存'),
+            h('span',{key:'hint',className:'wg-hint'},target?'保存到当前会话':'保存为默认写作配置'),
+          ]),
+          h('div',{key:'actions',className:'wg-config-actions'},[
+            target?h('button',{key:'reset',type:'button',className:'wg-btn',disabled:saving,onClick:resetToDefault},'恢复默认'):null,
+            h('button',{key:'save',type:'button',className:'wg-btn wg-btn-primary',disabled:saving||!dirty,onClick:save},target?'保存此会话配置':'保存默认配置'),
+          ]),
+        ])),
       ]);
     }
 
@@ -1662,7 +1692,7 @@ window.__ModuleLoader__.load({
             onClick: () => setTab(id),
           }, label))),
         ]),
-        h('div', { key: 'body', className: 'wg-body' }, [
+        h('div', { key: 'body', className: 'wg-body'+(tab==='config'?' wg-body-config':'') }, [
           message ? h('div', { key: 'ok', className: 'wg-ok' }, message) : null,
           error ? h('div', { key: 'err', className: 'wg-err' }, error) : null,
           !data

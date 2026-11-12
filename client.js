@@ -1528,22 +1528,41 @@ window.__ModuleLoader__.load({
       const wrapper=useRef(null),frame=useRef(null),surfaceRef=useRef(null),generation=useRef(0),queue=useRef(Promise.resolve()),actRef=useRef(null),focusRef=useRef(null),loadRef=useRef(null);
       const edits=useRef(new Map()),timers=useRef(new Map()),editSerial=useRef(0);
       const localFolds=useRef(new Map());
+      const scrollState=useRef([]),identity=useRef({sessionId,id:row.id});
+      // Capture just before replacing srcDoc, not when an asynchronous request starts.
+      // This respects scrolling or moving focus elsewhere while waiting for a reply.
+      const captureView=()=>{
+        const node=frame.current,document=node?.contentDocument;if(!document?.body)return;
+        scrollState.current=[document.scrollingElement,...document.body.querySelectorAll('[id],[data-reading-node]')]
+          .filter(el=>el&&(el.scrollTop||el.scrollLeft))
+          .map(el=>({root:el===document.scrollingElement,id:el.id,nodeId:el.dataset?.readingNode,top:el.scrollTop,left:el.scrollLeft}));
+        const el=document.activeElement;
+        focusRef.current=node.ownerDocument.activeElement===node&&el?.matches('input,textarea,select')
+          ? {id:el.dataset.readingNode,start:el.selectionStart,end:el.selectionEnd}:null;
+      };
       const [surface,setSurface]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
       const load=useCallback(async()=>{
         const current=++generation.current;setBusy(true);setError('');
-        try{const result=await api('POST','/reading/document',{sessionId,messageId:row.id,width:Math.round(wrapper.current?.clientWidth||920)});if(generation.current===current){surfaceRef.current=result;setSurface(result);}}
+        try{const result=await api('POST','/reading/document',{sessionId,messageId:row.id,width:Math.round(wrapper.current?.clientWidth||920)});if(generation.current===current){captureView();surfaceRef.current=result;setSurface(result);return true;}}
         catch(e){if(generation.current===current)setError(e.message);}
         finally{if(generation.current===current)setBusy(false);}
+        return false;
       },[sessionId,row.id,row.html,row.head]);
       loadRef.current=load;
-      useEffect(()=>{surfaceRef.current=null;setSurface(null);edits.current.clear();localFolds.current.clear();for(const timer of timers.current.values())clearTimeout(timer);timers.current.clear();if(row.interactive)void load();return()=>{generation.current++;for(const timer of timers.current.values())clearTimeout(timer);timers.current.clear();};},[row.interactive,load]);
+      useEffect(()=>{
+        const changed=identity.current.sessionId!==sessionId||identity.current.id!==row.id;identity.current={sessionId,id:row.id};
+        surfaceRef.current=null;if(changed||!row.interactive){setSurface(null);scrollState.current=[];focusRef.current=null;}
+        edits.current.clear();localFolds.current.clear();for(const timer of timers.current.values())clearTimeout(timer);timers.current.clear();
+        if(row.interactive)void load();
+        return()=>{generation.current++;for(const timer of timers.current.values())clearTimeout(timer);timers.current.clear();};
+      },[row.interactive,load]);
       actRef.current=input=>{
         const current=generation.current;
         const execute=async()=>{
           if(generation.current!==current||!surfaceRef.current)return;
           setBusy(true);setError('');
-          try{const result=await api('POST','/reading/document/action',{sessionId,messageId:row.id,token:surfaceRef.current.token,input});if(current===generation.current){if(input.localRevision&&edits.current.get(input.nodeId)?.revision===input.localRevision)edits.current.delete(input.nodeId);try{const el=frame.current?.contentDocument?.activeElement;if(el?.matches('input,textarea,select'))focusRef.current={id:el.dataset.readingNode,start:el.selectionStart,end:el.selectionEnd};}catch{}surfaceRef.current=result;setSurface(result);}}
-          catch(e){if(current===generation.current)setError(e.message);}
+          try{const result=await api('POST','/reading/document/action',{sessionId,messageId:row.id,token:surfaceRef.current.token,input});if(current===generation.current){if(input.localRevision&&edits.current.get(input.nodeId)?.revision===input.localRevision)edits.current.delete(input.nodeId);captureView();surfaceRef.current=result;setSurface(result);}}
+          catch(e){if(current===generation.current){if(e.message.includes('美化页面已过期')){if(await loadRef.current?.())setError('阅读页已重新加载，请再次操作。');}else setError(e.message);}}
           finally{if(current===generation.current)setBusy(false);}
         };
         queue.current=queue.current.then(execute,execute);
@@ -1555,7 +1574,19 @@ window.__ModuleLoader__.load({
           if(resizePending||disposed)return;resizePending=true;
           requestAnimationFrame(()=>{
             resizePending=false;if(disposed)return;
-            try{const body=node.contentDocument?.body;if(!body)return;node.style.height='1px';const height=Math.max(40,body.scrollHeight,node.contentDocument.documentElement.scrollHeight);node.style.height=height+2+'px';}catch{}
+            try{
+              const body=node.contentDocument?.body;if(!body)return;
+              // Measuring at 1px temporarily collapses the host scroll range. Save
+              // every scroll ancestor before layout and restore in this same frame.
+              const elements=new Set([node.ownerDocument.scrollingElement,node.contentDocument.scrollingElement]);
+              for(let parent=node.parentElement;parent;parent=parent.parentElement)elements.add(parent);
+              const positions=[...elements].filter(Boolean).map(el=>({el,top:el.scrollTop,left:el.scrollLeft}));
+              node.style.height='1px';const height=Math.max(40,body.scrollHeight,node.contentDocument.documentElement.scrollHeight);node.style.height=height+2+'px';
+              // Flush the expanded geometry before restoring, otherwise scrollTop
+              // may still be clamped to the temporary one-pixel document.
+              void node.offsetHeight;
+              for(const {el,top,left}of positions)if(el.scrollTop!==top||el.scrollLeft!==left)el.scrollTo({top,left,behavior:'instant'});
+            }catch{}
           });
         };
         const ready=()=>{
@@ -1594,7 +1625,8 @@ window.__ModuleLoader__.load({
           document.addEventListener('click',click);document.addEventListener('change',changed);document.addEventListener('input',inputted);document.addEventListener('keydown',key);document.addEventListener('submit',blockSubmit);document.addEventListener('toggle',toggled,true);document.addEventListener('load',resize,true);
           cleanDocument=()=>{document.removeEventListener('click',click);document.removeEventListener('change',changed);document.removeEventListener('input',inputted);document.removeEventListener('keydown',key);document.removeEventListener('submit',blockSubmit);document.removeEventListener('toggle',toggled,true);document.removeEventListener('load',resize,true);};
           for(const [id,pending]of edits.current){const el=document.querySelector('[data-reading-node="'+id+'"]');if(!el)continue;if(pending.values)for(const option of el.options)option.selected=pending.values.includes(option.value);else if(typeof pending.checked==='boolean')el.checked=pending.checked;else el.value=pending.value;}
-          const focus=focusRef.current;if(focus?.id){const el=document.querySelector('[data-reading-node="'+focus.id+'"]');if(el){el.focus({preventScroll:true});try{if(focus.start!=null)el.setSelectionRange(focus.start,focus.end);}catch{}}}
+          const focus=focusRef.current;if(focus?.id&&node.ownerDocument.activeElement===node){const el=document.querySelector('[data-reading-node="'+focus.id+'"]');if(el){el.focus({preventScroll:true});try{if(focus.start!=null)el.setSelectionRange(focus.start,focus.end);}catch{}}}
+          for(const saved of scrollState.current){const el=saved.root?document.scrollingElement:saved.id?document.getElementById(saved.id):saved.nodeId?document.querySelector('[data-reading-node="'+saved.nodeId+'"]'):null;el?.scrollTo({top:saved.top,left:saved.left,behavior:'instant'});}
           observer=new ResizeObserver(resize);observer.observe(document.body);mutation=new MutationObserver(resize);mutation.observe(document.body,{subtree:true,childList:true,attributes:true,characterData:true});resize();
         };
         node.addEventListener('load',ready);if(node.contentDocument?.readyState==='complete')ready();
@@ -1622,8 +1654,9 @@ window.__ModuleLoader__.load({
     function WritingReadingView({sessionId,useProjection,useSession}){
       const preset=useProjection('agentPreset'),running=useSession(s=>s.running);
       const [data,setData]=useState(null),[error,setError]=useState(''),[raw,setRaw]=useState(false),[showRuntime,setShowRuntime]=useState(false);
+      useEffect(()=>{setData(null);setError('');},[sessionId,preset]);
       useEffect(()=>{
-        let active=true,pending=false;setData(null);setError('');
+        let active=true,pending=false;setError('');
         const load=async()=>{if(!active||pending||preset!=='writer')return;pending=true;try{const next=await api('GET','/reading?sessionId='+encodeURIComponent(sessionId));if(active){setData(next);setError('');}}catch(e){if(active)setError(e.message);}finally{pending=false;}};
         void load();const timer=setInterval(load,4000);return()=>{active=false;clearInterval(timer);};
       },[sessionId,preset,running]);

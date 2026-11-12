@@ -1,6 +1,6 @@
 # 交接：DSH 写作模式 / SillyTavern 兼容插件
 
-更新时间：2026-11-12。当前版本：0.5.12（常驻运行器仍有兼容边界）。下文旧开发机记录按历史保留，最新进度见文末及 KNOWN_ISSUES.md。
+更新时间：2026-11-12。当前版本：0.5.13（常驻运行器仍有兼容边界）。下文旧开发机记录按历史保留，最新进度见文末及 KNOWN_ISSUES.md。
 
 > 接手先读本文，再看 README.md。不要把模块加载成功、无异常返回或单元测试通过，写成“完整酒馆兼容”。
 
@@ -274,3 +274,13 @@ ReadingFrame不转发本地fold的click/key事件，native toggle调整高度并
 真实回复仅检查结构/状态：美化段4个fold在最终iframe仍为4个；连同外部静态段共6个fold均默认关闭、点击打开、再次点击收起，uiErrors=0。未输出正文/私有脚本/变量，无模型请求。本机预设的两条规则与备份属于私人数据，不提交；程序版本升级需退出DSH后安装。
 
 完整测试52文件、0失败；最后的跨节点保留与fallback可见性修正后再次运行reading-folds-client并复核真实最终组件，均通过。不要再以readingHtml静态节点数量代替最终美化脚本后的交互验证。
+
+## 0.5.13 阅读滚动位置（2026-11-12）
+
+用户反馈草稿和角色心声能展开但跳到顶部，要求排查所有类似操作。合成真实组件稳定复现旧版resize高度1px使nested scroller从5833跳到14499（回顶/跳底均可能）。生产修改仅ReadingFrame的同步测量段：收集父级scroll元素与owner/contentDocument.scrollingElement，记录top/left；临时height1测量后恢复真实高度，offsetHeight强制布局，再scrollTo({behavior:'instant'})恢复。无旧请求时刻的长期scroll快照，不把用户主动滚动拉回。
+
+reading-scroll测试真实React及ReadingRuntime，长文5000/7000px，外层document和nested两种布局，覆盖普通/保护折叠、setting/input/select/refresh、延迟布局、窄屏、pending期间继续滚动、相同poll、smooth样式及多iframe。真实已有回复仅检查各可见summary两次toggle坐标，10次操作delta=0，未输出正文。未修改预设或历史；需更新client并重启DSH。
+
+扩大审查发现running变化setData(null)和同row内容变化setSurface(null)也会卸载iframe回顶：现在仅session/mode/row身份变化清空，原页保留到新结果到达。captureView在回包时读取内部scroll与焦点，ready恢复panel滚动，焦点仍在外层iframe时才恢复，避免抢外部输入框。旧runtime容量4导致过期token时读新surface并提示再次操作，不自动重复原动作。错误提示新增高度会触发浏览器合理锚定，测试同时检查可见summary坐标，不能机械要求外层scrollTop绝对不变。
+
+完整测试54文件、0失败；reading-refresh-state新增13项异步/内层状态验证，reading-scroll覆盖32项零偏移操作并检查过期恢复。最终过期提示成功条件修正后该恢复测试再次通过。源数据只做哈希保护；未发送模型生成、未展开私人正文。部署前备份27个素材/绑定/状态文件，加载前端修复需退出再启动。

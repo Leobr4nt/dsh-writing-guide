@@ -1569,11 +1569,17 @@ window.__ModuleLoader__.load({
       };
       const doc= row.interactive ? surface?.document : '<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'none\'; style-src \'unsafe-inline\'; img-src data:; base-uri \'none\'; form-action \'none\'"><style>:root{color-scheme:light dark}body{margin:0;padding:4px;font:15px/1.75 system-ui;overflow-wrap:anywhere}img{max-width:100%}pre{white-space:pre-wrap}details{padding:8px;border:1px solid #8884;border-radius:8px}</style>'+row.html;
       useEffect(()=>{
-        const node=frame.current;if(!node)return;let observer,mutation,resizePending=false,disposed=false,cleanDocument=()=>{};
+        const node=frame.current;if(!node)return;let observer,mutation,resizePending=false,disposed=false,activeDocument=null,cleanDocument=()=>{};
         const resize=()=>{
-          if(resizePending||disposed)return;resizePending=true;
+          if(resizePending||disposed||!activeDocument)return;resizePending=true;
+          const measuredDocument=activeDocument;
           requestAnimationFrame(()=>{
             resizePending=false;if(disposed)return;
+            // srcDoc replacement briefly exposes a partially parsed document.
+            // Old observers must never measure it or collapse the retained height.
+            if(node.contentDocument!==measuredDocument||measuredDocument.readyState!=='complete'){
+              if(activeDocument!==measuredDocument)resize();return;
+            }
             try{
               const body=node.contentDocument?.body;if(!body)return;
               // Measuring at 1px temporarily collapses the host scroll range. Save
@@ -1591,7 +1597,10 @@ window.__ModuleLoader__.load({
         };
         const ready=()=>{
           cleanDocument();observer?.disconnect();mutation?.disconnect();
-          const document=node.contentDocument;if(!document?.body)return;
+          const document=node.contentDocument;if(!document?.body||document.readyState!=='complete')return;activeDocument=document;
+          for(const element of [document.documentElement,document.body,...document.body.querySelectorAll('*')]){
+            if(document.defaultView.getComputedStyle(element).contentVisibility==='auto')element.style.setProperty('content-visibility','visible','important');
+          }
           const captureFocus=()=>{const el=document.activeElement;if(el?.matches('input,textarea,select'))focusRef.current={id:el.dataset.readingNode,start:el.selectionStart,end:el.selectionEnd};};
           const click=event=>{
             if(!row.interactive||event.button!==0)return;

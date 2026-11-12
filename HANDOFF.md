@@ -1,6 +1,6 @@
 # 交接：DSH 写作模式 / SillyTavern 兼容插件
 
-更新时间：2026-11-12。当前版本：0.5.13（常驻运行器仍有兼容边界）。下文旧开发机记录按历史保留，最新进度见文末及 KNOWN_ISSUES.md。
+更新时间：2026-11-12。当前版本：0.5.14（常驻运行器仍有兼容边界）。下文旧开发机记录按历史保留，最新进度见文末及 KNOWN_ISSUES.md。
 
 > 接手先读本文，再看 README.md。不要把模块加载成功、无异常返回或单元测试通过，写成“完整酒馆兼容”。
 
@@ -284,3 +284,13 @@ reading-scroll测试真实React及ReadingRuntime，长文5000/7000px，外层doc
 扩大审查发现running变化setData(null)和同row内容变化setSurface(null)也会卸载iframe回顶：现在仅session/mode/row身份变化清空，原页保留到新结果到达。captureView在回包时读取内部scroll与焦点，ready恢复panel滚动，焦点仍在外层iframe时才恢复，避免抢外部输入框。旧runtime容量4导致过期token时读新surface并提示再次操作，不自动重复原动作。错误提示新增高度会触发浏览器合理锚定，测试同时检查可见summary坐标，不能机械要求外层scrollTop绝对不变。
 
 完整测试54文件、0失败；reading-refresh-state新增13项异步/内层状态验证，reading-scroll覆盖32项零偏移操作并检查过期恢复。最终过期提示成功条件修正后该恢复测试再次通过。源数据只做哈希保护；未发送模型生成、未展开私人正文。部署前备份27个素材/绑定/状态文件，加载前端修复需退出再启动。
+
+## 0.5.14 心声按钮与延迟布局（2026-11-12）
+
+用户仍报点下方心声跳到上方。新结构探针确认该控件是button/span不是summary，3个同名按钮无duplicate id，nodeId正确且只有目标expanded变化；旧验收未测试这类实际控件。第二按钮操作outer scroll3510→2112，按钮屏幕y342→1740；正文祖先contentVisibility=auto，实际scrollHeight8196但offsetHeight1264 intrinsic，body1416。仅将auto改visible仍有半加载body1836被旧observer测量，导致3510→2532，需双重修复。
+
+snapshotReadingDom在克隆节点上把computed contentVisibility auto改visible!important，源DOM保持；ReadingFrame.ready对静态/根节点同样处理auto。resize绑定activeDocument并在RAF检查node.contentDocument同一身份、readyState complete；旧doc callback不得测新doc loading/interactive，保留旧iframe高度直到新doc完整ready。不全局关闭动画、显式hidden或折叠。
+
+work/probe-multiple-folds.mjs只程序内处理私人回复，输出按钮节点号、开合布尔及几何坐标，跟踪上中下自定义心声连续开合。源HTML/脚本/正文不输出，真实模型请求0。此次不能仅靠summary点击测试或存在节点数声称全部滚动问题解决。
+
+原54个测试文件全量0失败；新增reading-lazy-layout的5项独立通过（合计55个文件已验证），覆盖同名按钮/重复HTML id/双iframe/root+body auto/分帧加载与等待期间主动滚动。真实三个心声依次展开、逆序收起、再开最下共7次：scrollDelta=0、screenDelta=0、只改变预期node状态。明确保留原source auto及hidden设置，投影完整布局才禁用auto。独立审查还发现内部滚动容器重复id/无id重建的潜在恢复限制，不符合此次现场（内scroll为0、nodes稳定）的根因，不以此扩大修改。

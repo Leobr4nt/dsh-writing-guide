@@ -210,3 +210,7 @@ SPreset按公开源码补齐主要配置的执行路径及预设编辑控件；�
 ## 0.5.5 摘要折叠修复（2026-11-12）
 
 用户报告摘要标签像文本显示。只读结构定位到HTML前端围栏与doctype之间的注释被splitReadingDocuments漏判，尾部```独立出来吞掉后置摘要。允许围栏内前导注释/空行并保留其内容，unwrapReading同样忽略前导注释判定文档。新增reading-summary合成测试覆盖CRLF、两种围栏、注释保真、原生展开/收起和有意代码不误解释；真实消息仅检查标签计数、非空与点击状态，未显示正文或修改聊天历史。
+
+## 0.5.6 素材扩展可发现性（2026-11-12）
+
+固定套装数据未丢：卡22正则/8脚本；预设有效正则17（原生14与SPreset绑定16按id合并）、脚本1。扩展页原来默认读取旧示例绑定，所以截图角色卡列表看不到入口。materialExtensionCounts复用来源读取逻辑并只返回元数据；App保存只读extensionTarget，CardsPanel/PresetsPanel按钮直达ExtensionsPanel的inspect与type/section，不改scopeSession、绑定或启停。顶栏扩展恢复默认上下文。用完整客户端React模块和真实临时路由做合成UI回归，不只字符串断言。禁止把此修复称作自动启用或迁移到全局。

@@ -917,7 +917,20 @@ window.__ModuleLoader__.load({
       ]);
     }
 
-    function PresetsPanel({ data, reload, notify, fail }) {
+    function MaterialExtensions({type,id,counts,onOpen}){
+      const invalid=counts?.invalid===true;
+      const n=key=>Number.isInteger(counts?.[key])?counts[key]:'…';
+      const detail=type==='preset'&&counts?.boundRegex?'包含 SPreset 绑定，按实际来源列表合并计数':'直接管理此素材附带的扩展，不改变会话绑定';
+      return h('div',{className:'wg-bar','data-material-extensions':type+':'+id},[
+        h('span',{key:'label',className:'wg-hint'},'附带扩展：'),
+        h('button',{key:'regex',className:'wg-btn wg-btn-mini',title:detail,onClick:()=>onOpen({type,id,kind:'regex'})},'正则 '+n('regex')),
+        h('button',{key:'helper',className:'wg-btn wg-btn-mini',title:'进入此素材的酒馆助手来源；数量包含文件夹内脚本',onClick:()=>onOpen({type,id,kind:'helper'})},'脚本 '+n('scripts')),
+        counts?.folders?h('span',{key:'folders',className:'wg-hint'},counts.folders+' 个文件夹'):null,
+        invalid?h('span',{key:'invalid',className:'wg-err'},'扩展结构需检查'):null,
+      ]);
+    }
+
+    function PresetsPanel({ data, reload, notify, fail, onOpenExtensions }) {
       const [query,setQuery]=useState('');
       const [creating, setCreating] = useState(false);
       const downloadJson = async (path, name, pick) => {
@@ -1017,6 +1030,7 @@ window.__ModuleLoader__.load({
               ` · ${preset.id}`,
             ].filter(Boolean).join('')),
           ]),
+          h(MaterialExtensions,{key:'extensions',type:'preset',id:preset.id,counts:preset.extensionCounts,onOpen:onOpenExtensions}),
           h(Chips, {
             key: 'c', modes: data.modes, selected: preset.modes, allowEmptyHint: true,
             onChange: async (list) => {
@@ -1265,14 +1279,15 @@ window.__ModuleLoader__.load({
     }
 
     /** 角色卡：JSON/PNG 导入、编辑基础字段与开场白、导出。 */
-    function CardsPanel({ notify, fail }) {
+    function CardsPanel({ notify, fail, onOpenExtensions }) {
       const [query,setQuery]=useState('');
       const [cards, setCards] = useState(null);
+      const [extensionCounts,setExtensionCounts]=useState({});
       const [editing, setEditing] = useState(null);
       const [busy, setBusy] = useState(false);
       const fileRef = useRef(null);
       const load = useCallback(async () => {
-        try { setCards(await call('/cards').then((value) => value.cards ?? [])); } catch (error) { fail(error); }
+        try { const value=await call('/cards');setCards(value.cards??[]);setExtensionCounts(value.extensionCounts??{}); } catch (error) { fail(error); }
       }, [fail]);
       useEffect(() => { load(); }, [load]);
 
@@ -1323,6 +1338,7 @@ window.__ModuleLoader__.load({
         h(SearchInput,{key:'search',query,onChange:setQuery,label:'搜索角色卡名称'}),
         ...cards.filter(card=>matchesSearch(card,query)).map((card) => h('div', { key: card.id, className: 'wg-item' }, [
           h('div', { key: 'main', className: 'wg-item-main' }, [h('b', {}, card.name || card.id), h('span', { className: 'wg-hint' }, ` ${card.spec} · ${card.characterBook?.entries?.length ?? 0} 条世界书条目`)]),
+          h(MaterialExtensions,{key:'extensions',type:'character',id:card.id,counts:extensionCounts[card.id],onOpen:onOpenExtensions}),
           h('div', { key: 'ops', className: 'wg-item-ops' }, [
             h('button', { key: 'e', className: 'wg-btn wg-btn-mini', onClick: () => setEditing(card) }, '编辑'),
             h('button', {
@@ -1384,18 +1400,18 @@ window.__ModuleLoader__.load({
       ]);
     }
 
-    function ExtensionsPanel({ data, notify, fail, scopeSession, onScopeSessionChange }) {
-      const [section,setSection]=useState('regex'),[state,setState]=useState(null),[sessions,setSessions]=useState([]);
-      const [inspect,setInspect]=useState(false),[presetId,setPresetId]=useState(''),[cardId,setCardId]=useState('');
-      const [sourceType,setSourceType]=useState('global'),[editor,setEditor]=useState(null),[text,setText]=useState(''),[result,setResult]=useState('');
+    function ExtensionsPanel({ data, notify, fail, scopeSession, onScopeSessionChange, initialTarget }) {
+      const [section,setSection]=useState(initialTarget?.kind==='helper'?'helper':'regex'),[state,setState]=useState(null),[sessions,setSessions]=useState([]);
+      const [inspect,setInspect]=useState(!!initialTarget),[presetId,setPresetId]=useState(initialTarget?.type==='preset'?initialTarget.id:''),[cardId,setCardId]=useState(initialTarget?.type==='character'?initialTarget.id:'');
+      const [sourceType,setSourceType]=useState(initialTarget?.type??'global'),[editor,setEditor]=useState(null),[text,setText]=useState(''),[result,setResult]=useState('');
       const [busy,setBusy]=useState(false),[template,setTemplate]=useState({enabled:false,allowedPresetIds:[]});
       const [previewText,setPreviewText]=useState(''),[mode,setMode]=useState('send'),[placement,setPlacement]=useState(2),[depth,setDepth]=useState(0);
-      const selection={sessionId:scopeSession,inspect,presetId,cardId};
+      const selection={sessionId:inspect?'':scopeSession,inspect,presetId,cardId};
       const requestSeq=useRef(0);
       const load=useCallback(async()=>{
         const seq=++requestSeq.current;
         try {
-          const query=new URLSearchParams({sessionId:scopeSession,inspect:String(inspect),presetId,cardId});
+          const query=new URLSearchParams({sessionId:inspect?'':scopeSession,inspect:String(inspect),presetId,cardId});
           const value=await call('/extensions/scopes?'+query);
           if(seq!==requestSeq.current)return;
           setState(value);setTemplate(value.template);
@@ -1464,7 +1480,7 @@ window.__ModuleLoader__.load({
         ]),
         section!=='template'?h('div',{key:'sources',className:'wg-bar'},state.sources.map(s=>h('button',{key:s.key,className:'wg-btn'+(s.type===source.type?' wg-btn-primary':''),disabled:busy,onClick:()=>{setSourceType(s.type);setEditor(null);setText('');}},labels[s.type]+' · '+s.name+' ('+(kind==='regex'?s.regex.length:s.scripts.length)+')'))):null,
         section!=='template'?h('div',{key:'owner',className:'wg-card'},[
-          h('h4',{},labels[source.type]+'：'+source.name),
+          h('h4',{'data-extension-owner':source.type+':'+source.id},labels[source.type]+'：'+source.name),
           kind==='regex'&&source.type==='global'?h('div',{className:'wg-hint'},'全局正则按各条目启停状态执行。'):button(allowed?'停用此来源':'启用此来源',()=>act(()=>api('POST','/extensions/scope/allowed',{scope,kind,enabled:!allowed}))),
           h('div',{className:'wg-hint'},kind==='regex'?'执行顺序：全局 → 当前预设 → 当前角色卡。显示规则在同一会话的“写作阅读”生效。':'来源、文件夹、脚本三层开关分别生效。常驻模式支持部分事件、MVU、按钮和独立脚本界面；联网和宿主历史改写暂不支持。'),
           ...renderItems(items),!items.length?h('div',{className:'wg-hint'},'该来源暂无附带条目。'):null,
@@ -1712,6 +1728,8 @@ window.__ModuleLoader__.load({
     function App() {
       const [tab, setTab] = useState('config');
       const [scopeSession,setScopeSession]=useState('');
+      const [extensionTarget,setExtensionTarget]=useState(null);
+      const openExtensions=useCallback(target=>{setExtensionTarget({...target,nonce:Date.now()});setTab('ext');},[]);
       const [data, setData] = useState(null);
       const [error, setError] = useState('');
       const [message, setMessage] = useState('');
@@ -1751,7 +1769,7 @@ window.__ModuleLoader__.load({
             key: id,
             'aria-selected': String(tab === id),
             disabled: staleHost,
-            onClick: () => setTab(id),
+            onClick: () => {if(id==='ext')setExtensionTarget(null);setTab(id);},
           }, label))),
         ]),
         h('div', { key: 'body', className: 'wg-body'+(tab==='config'?' wg-body-config':'') }, [
@@ -1776,13 +1794,13 @@ window.__ModuleLoader__.load({
                 : tab === 'worlds'
                   ? h(WorldsPanel, { key: 'worlds', data, reload, notify, fail })
                   : tab === 'presets'
-                  ? h(PresetsPanel, { key: 'presets', data, reload, notify, fail })
+                  ? h(PresetsPanel, { key: 'presets', data, reload, notify, fail,onOpenExtensions:openExtensions })
                   : tab === 'config'
                   ? h(ConfigPanel, { key: 'config', data, reload, notify, fail,scopeSession,onScopeSessionChange:setScopeSession })
                   : tab === 'cards'
-                  ? h(CardsPanel, { key: 'cards', data, reload, notify, fail })
+                  ? h(CardsPanel, { key: 'cards', data, reload, notify, fail,onOpenExtensions:openExtensions })
                   : tab === 'ext'
-                  ? h(ExtensionsPanel, { key: 'ext', data, notify, fail,scopeSession,onScopeSessionChange:setScopeSession })
+                  ? h(ExtensionsPanel, { key: 'ext:'+(extensionTarget?.nonce??'default'), data, notify, fail,scopeSession,onScopeSessionChange:setScopeSession,initialTarget:extensionTarget })
                   : h(WorksPanel, { key: 'works', data, reload, notify, fail }),
         ]),
       ]);

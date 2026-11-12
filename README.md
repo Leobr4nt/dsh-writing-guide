@@ -2,7 +2,7 @@
 
 为 DeepSeek Harness 增加“写作模式”。在正常聊天输入框创作，插件负责预设、世界书、角色卡、正则和扩展处理，回复保存在 DSH 会话历史中。
 
-当前版本 **0.5.5**。已验证 Windows / DSH **0.2.2-rc.1**。这不是完整 SillyTavern 的移植；支持范围和仍未解决的问题见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)，开发记录见 [HANDOFF.md](HANDOFF.md)。
+当前版本 **0.5.6**。已验证 Windows / DSH **0.2.2-rc.1**。这不是完整 SillyTavern 的移植；支持范围和仍未解决的问题见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)，开发记录见 [HANDOFF.md](HANDOFF.md)。
 
 ## 安装与更新
 
@@ -144,3 +144,7 @@ node scripts/verify-resident-suite.mjs <本地validation-suite.json> <报告.jso
 ## 0.5.5 摘要折叠边界修复
 
 前端代码围栏和完整HTML文档之间含注释或空行时，仍将它们视为一个前端块并成对移除围栏，保留HTML注释。避免遗留结束围栏被Markdown解释成新的代码块，导致后续details/summary显示为标签文本。摘要继续按浏览器原生details折叠，原始消息和摘要内容不修改；不对有意展示的代码示例做全局反转义。
+
+## 0.5.6 素材附带扩展入口
+
+角色卡和预设列表直接显示“正则 N / 脚本 N”，点击进入对应素材的扩展来源与类型，无需先改默认配置。脚本数量包含目录内节点；预设正则使用与执行路径一致的SPreset绑定合并规则。列表入口使用只读浏览选择，不修改会话绑定和来源启停；点击顶部“扩展”仍回到当前写作配置。

@@ -249,7 +249,7 @@ window.__ModuleLoader__.load({
           ]),
           h('details',{key:'vars'},[
             h('summary',{},'用户人设与角色字段补充'),
-            h('div',{className:'wg-hint'},'角色描述、性格、场景和示例优先使用绑定角色卡；缺失时使用这里的补充。{{char}} 来自角色卡，{{user}} 当前固定为“用户”。'),
+            h('div',{className:'wg-hint'},'角色描述、性格、场景和示例优先使用绑定角色卡；缺失时使用这里的补充。{{char}} 来自角色卡；{{user}} 和 <user> 来自上方配置的用户角色名字。'),
             ...[['persona','用户人设'],['description','补充角色描述'],['personality','补充角色性格'],['scenario','补充场景'],['examples','补充示例对话']].map(([key,label])=>h(Field,{key,label},h('textarea',{value:draft.vars[key]??'',onChange:e=>setChanges(prev=>({...prev,vars:{...prev.vars,[key]:e.target.value}}))}))),
           ]),
           h('div',{key:'save',className:'wg-bar'},[h('button',{className:'wg-btn',disabled:busy||!Object.keys(changes).length,onClick:save},'保存全局设置'),h('span',{className:'wg-hint','aria-live':'polite'},Object.keys(changes).length?'全局设置有未保存的更改':'全局设置已保存')]),
@@ -1018,6 +1018,10 @@ window.__ModuleLoader__.load({
                 h('option',{key:'none',value:''},'不使用角色卡'),
                 ...cards.map(card=>h('option',{key:card.id,value:card.id},card.name||card.id)),
               ])),
+              h(Field,{key:'user-name',label:'用户角色名字'},[
+                h('input',{key:'input',type:'text',value:draft.userName??'用户',disabled:saving,placeholder:'填写你在故事中代表的角色名',onChange:event=>set({userName:event.target.value})}),
+                h('span',{key:'hint',className:'wg-hint'},'用于替换 <user> 和 {{user}}，相当于酒馆的 Persona 名字。留空使用“用户”；保存后下一次请求生效，已有正文不改写。'),
+              ]),
               h('hr',{key:'divider',className:'wg-config-divider'}),
               h(Field,{key:'world-mode',label:'世界书范围'},h('select',{value:worldMode,disabled:saving,onChange:event=>set({worldSelection:event.target.value})},[
                 h('option',{key:'all',value:'all'},'全部世界书'),
@@ -1354,7 +1358,7 @@ window.__ModuleLoader__.load({
           h('label',{},[h('input',{type:'checkbox',checked:template.enabled,onChange:e=>setTemplate({...template,enabled:e.target.checked})}),'启用']),
           ...state.presets.map(p=>h('label',{key:p.id},[h('input',{type:'checkbox',checked:template.allowedPresetIds.includes(p.id),onChange:e=>setTemplate({...template,allowedPresetIds:e.target.checked?[...template.allowedPresetIds,p.id]:template.allowedPresetIds.filter(id=>id!==p.id)})}),p.name])),
           button('保存模板设置',()=>act(()=>api('POST','/extensions/template',template))),
-          h('textarea',{value:previewText,onChange:e=>setPreviewText(e.target.value),'aria-label':'EJS模板预览'}),button('运行模板预览',()=>act(()=>api('POST','/extensions/template/preview',{text:previewText}),false)),
+          h('textarea',{value:previewText,onChange:e=>setPreviewText(e.target.value),'aria-label':'EJS模板预览'}),button('运行模板预览',()=>act(()=>api('POST','/extensions/template/preview',{...selection,text:previewText}),false)),
         ]):null,
         h('pre',{key:'result',className:'wg-pre',style:{whiteSpace:'pre-wrap',maxHeight:320,overflow:'auto'}},result),
       ]);

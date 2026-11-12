@@ -1,6 +1,6 @@
 # 交接：DSH 写作模式 / SillyTavern 兼容插件
 
-更新时间：2026-11-12。当前版本：0.5.10（常驻运行器仍有兼容边界）。下文旧开发机记录按历史保留，最新进度见文末及 KNOWN_ISSUES.md。
+更新时间：2026-11-12。当前版本：0.5.11（常驻运行器仍有兼容边界）。下文旧开发机记录按历史保留，最新进度见文末及 KNOWN_ISSUES.md。
 
 > 接手先读本文，再看 README.md。不要把模块加载成功、无异常返回或单元测试通过，写成“完整酒馆兼容”。
 
@@ -254,3 +254,13 @@ QuickJS 提供三个读取别名与 local/message setter 薄别名，Lodash rand
 新增undici依赖只使用官方getGlobalDispatcher；每请求dispatcher包装将headersTimeout/bodyTimeout设0并委托原dispatcher，防止底层默认300秒先截断更长配置，不调用setGlobalDispatcher、不改代理或TLS。总响应计时器覆盖等待头和读完整正文，原AbortSignal仍可随时取消；每次SPreset工具模型往返各自计时，没有自动重试。升级部署需要npm ci --ignore-scripts安装新依赖后再启动DSH。
 
 最终完整测试50文件、0失败（其中request-timeout含10个用例）；真实apply→hook→本机HTTP验证计时器传递、头/正文分别超时与取消、无自动重试、失败无变量提交、dispatcher0/0和默认/会话隔离。UI验证保存、重开、恢复默认及非法值；旧helper-editor测试需等待页面rAF自动聚焦完成再输入，已补等待以消除合成输入竞争。npm audit --omit=dev为0项；未请求真实模型、未读取私人正文。部署前备份27个素材/绑定/状态文件哈希，不修改其内容。
+
+## 0.5.11 Persona 名字替换（2026-11-12）
+
+用户指出 `<user>` 应替换为酒馆玩家名字。核对 SillyTavern macros.js preEnvMacros、MacroEngine legacy-markers、MacroEnvBuilder names.user、personas.selectCurrentPersona 与 PromptManager.preparePrompt，确认旧/新引擎都支持，先前只验证 rencheng 赋值/引用而未检查值内占位符的结论不完整。
+
+新增 binding.userName（trim，缺失/空回退“用户”）与配置页输入；name-macros.js 统一 user/char/bot名字替换。renderStoryString 必须先把 legacy 标记转 curly 宏，再从内到外展开，不能直接把angle和curly放同一regex：外层setvar会吞掉内部angle标记。正常hook、card helpers、regex、SPreset、scope阅读/预览/手动脚本、resident启动及模板user/userName上下文传递同一名字。常驻host的替换函数显式序列化注入，避免闭包引用Node；名字变化使resident key和阅读cache失效。
+
+固定套装只做程序内结构验证，使用临时合成名字覆盖绑定副本，不保存：23条模板、最终发送边界出现正确人称指令、名字出现23次、遗留user标记0、素材及状态哈希不变、真实模型请求0。不要在未设置真实名字时擅自从私人正文猜名字；默认仍“用户”。完整Persona管理和群聊不在本轮范围，旧正文不会回写。
+
+最终完整测试51文件、0失败；新增user-name含7项，覆盖真实本机HTTP与常驻浏览器、A/B/A会话/重命名隔离、默认回退、特殊字符、scope与模板预览、SPreset和源数据保留。固定套装常驻验收corePassed=true，9模块/2书/MVU更新/23模板通过；原有NETWORK_BLOCKED与MISSING_API各1仍保留，不宣称全部脚本兼容。安装须正常退出DSH后替换，并提醒用户在写作配置中填写实际名字再生成。

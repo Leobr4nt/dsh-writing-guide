@@ -1,6 +1,6 @@
 # 交接：DSH 写作模式 / SillyTavern 兼容插件
 
-更新时间：2026-11-12。当前版本：0.5.7（常驻运行器仍有兼容边界）。下文旧开发机记录按历史保留，最新进度见文末及 KNOWN_ISSUES.md。
+更新时间：2026-11-12。当前版本：0.5.8（常驻运行器仍有兼容边界）。下文旧开发机记录按历史保留，最新进度见文末及 KNOWN_ISSUES.md。
 
 > 接手先读本文，再看 README.md。不要把模块加载成功、无异常返回或单元测试通过，写成“完整酒馆兼容”。
 
@@ -228,3 +228,13 @@ SPreset按公开源码补齐主要配置的执行路径及预设编辑控件；�
 安装必须正常退出再替换插件目录，不能混用新前端与缓存的旧 Host。更新前后比较素材、绑定、扩展状态文件哈希；无须重新导入套装或切换用户现有默认绑定。
 
 0.5.7 最终 `node scripts/test.mjs`：47 个测试文件、0 失败。`request-diagnostics.mjs` 通过真实插件 apply/transport 与本机 HTTP 捕获验证发送边界和最终消息角色，工具与 API 使用相同脱敏结果。桌面菜单点击工具返回 coordinate input geometry is unavailable，故需要用户正常退出后部署；不以整页截图绕过正文隐私约束。
+
+## 0.5.8 getMessageVar 未定义（2026-11-12）
+
+报错来自非驻留 QuickJS EJS，原先只注册 getvar/setvar，缺少 scoped getter 和 `_`。参考公开 ST-Prompt-Template `src/function/ejs.ts` 与 `variables.ts`：getMessageVar 没有 withMsg 时读 STATE.cacheVars，并非只读消息表；缓存顶层 global/local/message 后者覆盖前者。新增 template-readers.js 显式注入两条隔离运行器，QuickJS 加载可信依赖 lodash.min.js；代码从不在 Node 中执行用户模板。
+
+QuickJS 提供三个读取别名与 local/message setter 薄别名，Lodash random/sample 绑定已有种子。session-hook 把 residentState.variables.global 作为只读输入；未启用驻留也能读保存过的全局快照。Browser 去掉深合并读取，在渲染前直接从原始消息表继承当前楼，variables.templateInitialized 保留初始化状态（当前单 swipe 模型）。不要通过 hydrateChat 或 helper.getVariables 检查缺表，它们会把缺表表现为 {}。withMsg/initial 明确报不支持；未伪造跨聊天 global。
+
+新增 template-variable-readers 合成回归：QuickJS/真实无界面浏览器一致、默认值/null/路径/clone/index/noCache、旧表继承及空表停止回溯、不恢复主动删除的数据、隔离与随机稳定、实际 hook 的失败/取消回滚和成功持久化。固定套装只检查结构和结果计数；空/已有变量各 23 条配置消息完成模板渲染且残留 EJS 为 0，素材和状态哈希不变，模型请求为 0。
+
+完整测试 48 文件、0 失败；最终缓存隔离修正后复跑 7 个相关测试仍全部通过。固定套装常驻路径复测：9 个模块加载、2 本书初始化、MVU 更新及恢复、23 条模板通过，corePassed=true，inputsAndStateUnchanged=true。原有 NETWORK_BLOCKED 和 MISSING_API 各 1 条仍在；fullCompatibility=false，不据此宣称整套脚本已兼容。版本待正常退出 DSH 后部署，避免热替换。

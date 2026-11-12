@@ -2,7 +2,7 @@
 
 为 DeepSeek Harness 增加“写作模式”。在正常聊天输入框创作，插件负责预设、世界书、角色卡、正则和扩展处理，回复保存在 DSH 会话历史中。
 
-当前版本 **0.5.7**。已验证 Windows / DSH **0.2.2-rc.1**。这不是完整 SillyTavern 的移植；支持范围和仍未解决的问题见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)，开发记录见 [HANDOFF.md](HANDOFF.md)。
+当前版本 **0.5.8**。已验证 Windows / DSH **0.2.2-rc.1**。这不是完整 SillyTavern 的移植；支持范围和仍未解决的问题见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)，开发记录见 [HANDOFF.md](HANDOFF.md)。
 
 ## 安装与更新
 
@@ -69,6 +69,8 @@
 常驻运行器使用本机 Chrome/Edge 的独立无界面实例，不读取用户浏览器资料或 Cookie。可用 `DSH_WRITING_BROWSER` 指定可执行文件。
 
 已支持模块加载、部分事件、MVU、聊天/脚本变量、世界书接口、按钮和异步 EJS。成功生成后提交状态，失败/取消丢弃本轮事务；变量或素材外部更新会使旧实例失效。
+
+0.5.8 补齐非驻留模板执行的 `getMessageVar/getLocalVar/getGlobalVar` 及 Lodash，避免关闭常驻运行时出现函数未定义。两条模板路径共用读取接口：未指定消息筛选时 `getMessageVar` 读取合并缓存（global → local → message，顶层覆盖），支持默认值、路径、整表、clone、JSON 字符串 index 和 noCache。`setLocalVar/setMessageVar` 复用现有事务写入。全局读取目前来自该会话保存的 global 快照，尚不是酒馆跨聊天全局共享；`withMsg`、initial 和多 swipe 查询仍明确不支持。
 
 会话输入框上方可操作脚本按钮。**写作阅读 → 脚本界面**可查看独立浏览器画面，点击、输入、发送常用键和滚动；图鉴、状态栏等是否可运行仍取决于脚本所需 API。需要修改原聊天历史的操作会明确拒绝。
 

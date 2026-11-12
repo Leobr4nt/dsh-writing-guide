@@ -200,3 +200,9 @@ SPreset按公开源码补齐主要配置的执行路径及预设编辑控件；�
 用户明确指出“完整美化”是截图，要求按酒馆源码实现。核查ST messageFormatting写入mes_text以及助手render/Iframe.vue后，修复ReadingRuntime/ReadingFrame：完整美化返回净化后的DOM文档，前端用无源脚本的iframe呈现，文字可选中复制；控制节点事件传回独立运行器，保留样式与表单状态。移除正文整页PNG与10000像素裁剪，补真实组件交互和长文/隔离测试。
 
 注意这仍是DSH宿主适配：源脚本执行留在隔离浏览器，DOM同步并非酒馆完全同源iframe，拖拽/动画/连续异步渲染与全部UI API仍未实现。不要把此修复写成整个酒馆体验已完成。固定套装仍禁止展示正文/脚本/变量值；本轮只输出文本节点、控件和图片计数。旧的“脚本界面”画面代理没有作为正文修复的一部分改写。
+
+## 0.5.4 真实结构回归（2026-11-12）
+
+0.5.3只解决整页PNG，但未覆盖混合HTML前端文档与外部CSS依赖。用户再次截图反馈控制面板铺开。新增splitReadingDocuments按实际完整文档边界在Markdown之前分离，message.parts提供独立ReadingFrame和对应document/action定位；保留源头stylesheet并通过公开HTTPS安全下载器内联缓存；snapshotReadingDom补CSSOM和根color-scheme。不要恢复“混成一个div再截图”的旧方案。
+
+新增reading-fragments及实际React多片段回归。真实素材仍只输出结构数量与CSS比较结果：截图对应消息样式恢复、默认面板折叠、无围栏/标签泄漏，原文未显示。源码边界依据酒馆助手render/Iframe.vue与isFrontend判定，不表示完整宿主生命周期已移植。其它开放问题保持。

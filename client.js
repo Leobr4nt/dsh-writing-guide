@@ -1926,10 +1926,14 @@ window.__ModuleLoader__.load({
           h('button',{key:'refresh',type:'button',disabled:busy,onClick:load},surface?'刷新':'加载正文'),
           surface?.issues?h('span',{key:'issues',style:{opacity:.65}},'部分脚本功能未完成'):null,
           row.imagesFailed?h('span',{key:'images'},`${row.imagesFailed} 张插图暂未加载`):null,
+          row.stylesFailed?h('span',{key:'styles'},`${row.stylesFailed} 份外部样式未加载`):null,
         ]):null,
         error?h('div',{key:'error',role:'alert'},error):null,
         doc?h('iframe',{key:'document',ref:frame,title:'写作正文',sandbox:'allow-same-origin',srcDoc:doc,style:{border:0,width:'100%',minHeight:40,display:'block'},'aria-busy':busy}):null,
       ]);
+    }
+    function ReadingContent({row,sessionId}){
+      return row.parts?h('div',{'data-reading-parts':true},row.parts.map(part=>h(ReadingFrame,{key:sessionId+':'+part.id,row:part,sessionId}))):h(ReadingFrame,{row,sessionId});
     }
     function WritingReadingView({sessionId,useProjection,useSession}){
       const preset=useProjection('agentPreset'),running=useSession(s=>s.running);
@@ -1951,7 +1955,7 @@ window.__ModuleLoader__.load({
         !data?h('div',{key:'loading'},'读取正文…'):!data.messages.length?h('div',{key:'empty'},'在下方输入框发送消息，回复完成后会在这里显示。'):null,
         ...(data?.messages??[]).map(row=>h('article',{key:row.id,style:{minWidth:0,padding:row.role==='user'?'12px 16px':'8px 0',borderRadius:12,background:row.role==='user'?'var(--dsw-alias-bg-layer-1, #8881)':'transparent'}},[
           h('div',{key:'role',style:{fontSize:11,opacity:.6,marginBottom:5}},row.role==='user'?'你':'正文'),
-          raw?h('pre',{key:'raw',style:{whiteSpace:'pre-wrap',font:'inherit'}},row.original):row.hidden?h('details',{key:'hidden'},[h('summary',{key:'s'},'此消息已按显示规则隐藏'),h('pre',{key:'p',style:{whiteSpace:'pre-wrap',font:'inherit'}},row.original)]):h(ReadingFrame,{key:sessionId+':'+row.id,row,sessionId}),
+          raw?h('pre',{key:'raw',style:{whiteSpace:'pre-wrap',font:'inherit'}},row.original):row.hidden?h('details',{key:'hidden'},[h('summary',{key:'s'},'此消息已按显示规则隐藏'),h('pre',{key:'p',style:{whiteSpace:'pre-wrap',font:'inherit'}},row.original)]):h(ReadingContent,{key:sessionId+':'+row.id,row,sessionId}),
         ])),
         running?h('div',{key:'running',style:{opacity:.6}},'正在生成，完成后更新正文…'):null,
       ]);

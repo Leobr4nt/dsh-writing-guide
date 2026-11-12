@@ -13,6 +13,7 @@ try{
   assert.match(readingHtml('<style>#a{color:red}</style><div id="a">x</div>'),/id="a"/);
   const mixed='Before\n\n<style>#one{color:red}</style><div id="one">A</div>\n<script>\n  const a=`line\n    value`;\n  window.fixture=a;\n</script>\n\n```html\n<html><head><style>#two{color:blue}</style></head><body><div id="two">B</div><script>window.other=2;</script></body></html>\n```';
   const combined=await interactiveReadingHtml(mixed,assets);
-  assert.match(combined.html,/id="one"/);assert.match(combined.html,/id="two"/);assert.match(combined.html,/const a=`line\n    value`/);assert.match(combined.html,/window.other=2/);
+  assert.equal(combined.parts.length,2,'frontend document owns an independent iframe');
+  assert.match(combined.parts[0].html,/id="one"/);assert.match(combined.parts[1].html,/id="two"/);assert.match(combined.parts[0].html,/const a=`line\n    value`/);assert.match(combined.parts[1].html,/window.other=2/);
   console.log('reading-document: full HTML preservation, controls/styles, bounded image cache and private address rejection passed');
 }finally{await rm(root,{recursive:true,force:true});}

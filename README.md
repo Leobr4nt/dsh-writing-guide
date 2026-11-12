@@ -2,7 +2,7 @@
 
 为 DeepSeek Harness 增加“写作模式”。在正常聊天输入框创作，插件负责预设、世界书、角色卡、正则和扩展处理，回复保存在 DSH 会话历史中。
 
-当前版本 **0.5.3**。已验证 Windows / DSH **0.2.2-rc.1**。这不是完整 SillyTavern 的移植；支持范围和仍未解决的问题见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)，开发记录见 [HANDOFF.md](HANDOFF.md)。
+当前版本 **0.5.4**。已验证 Windows / DSH **0.2.2-rc.1**。这不是完整 SillyTavern 的移植；支持范围和仍未解决的问题见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)，开发记录见 [HANDOFF.md](HANDOFF.md)。
 
 ## 安装与更新
 
@@ -134,3 +134,9 @@ node scripts/verify-resident-suite.mjs <本地validation-suite.json> <报告.jso
 参考SillyTavern script.js 的 messageFormatting/mes_text，以及JS-Slash-Runner的panel/render/Iframe.vue、iframe.ts：正文应为DOM，前端界面应在iframe中呈现。DSH仍在独立浏览器执行源脚本，再向阅读iframe提供净化后的DOM并代理控件事件；不等同于酒馆完整同源脚本环境。动态动画、拖拽及宿主API兼容仍属未完成项。
 
 新增reading-dom和reading-client测试，验证实际React组件的文本选择、输入、折叠、长文末尾、窄屏与脚本隔离。固定套装仅程序结构检查：243个文本节点、39个控件、5张插图，正文非整页图片；未显示素材内容、未调用模型、未改原始历史。
+
+## 0.5.4 混合文档与样式表修复
+
+完整HTML前端文档在Markdown解析前分离为独立片段，普通正文和每个前端文档分别显示，避免把HTML围栏/资源标签当作文字、跨文档CSS污染。公开HTTPS样式表经过与图片相同的地址/DNS/重定向校验后本地缓存内联；不携带凭证，每份限制2MB。二级@import/字体等请求仍受限制，失败样式有提示。动态CSSOM规则和根主题属性也随DOM保留。
+
+截图对应历史消息结构复测：3个显示片段，外部样式2份恢复，22个控件默认只显示6个，代码围栏和转义资源标签均为0，投影前后控件样式差异0。素材正文/脚本不展示，原始会话不修改。另一固定套装的结构回归仍有1个按钮颜色差异，未据此宣称全部样式完全一致。

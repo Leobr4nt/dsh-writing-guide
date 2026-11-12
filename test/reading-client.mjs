@@ -1,0 +1,29 @@
+import fs from 'node:fs';import {fileURLToPath} from 'node:url';import path from 'node:path';import os from 'node:os';import assert from 'node:assert/strict';
+import {chromium} from 'playwright-core';
+import {build} from 'esbuild';
+import {ReadingRuntime} from '../lib/reading-runtime.js';
+import {interactiveReadingHtml} from '../lib/reading.js';
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'wg-text-ui-'));const runtime=new ReadingRuntime(root);let browser;
+const source=fs.readFileSync(new URL('../client.js',import.meta.url),'utf8'),a=source.indexOf('    function ReadingFrame('),b=source.indexOf('    function WritingReadingView(',a);const component=source.slice(a,b);
+const js=`import React,{useState,useRef,useEffect,useCallback} from 'react';import{createRoot}from'react-dom/client';const h=React.createElement;const api=async(method,url,body)=>{const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const v=await r.json();if(!r.ok)throw Error(v.error);return v;};${component}\nconst root=createRoot(document.querySelector('#app'));window.renderRow=(row)=>root.render(h(ReadingFrame,{row,sessionId:'fixture'}));`;
+const bundle=await build({stdin:{contents:js,loader:'js',resolveDir:fileURLToPath(new URL('../',import.meta.url))},bundle:true,write:false,format:'iife',platform:'browser',logLevel:'silent'});
+const fixture='<html><head><style>body{margin:0;background:#15171c;color:#eee}#settings{display:none}#last{margin-top:15000px}</style></head><body><p id="text">可选择复制的合成正文，不是图片。</p><button id="open">设置</button><div id="settings"><input id="edit" value="初始"><select id="select"><option value="a">A</option><option value="b">B</option></select><span id="out"></span></div><details id="details"><summary>摘要</summary><p>隐藏摘要</p></details><p id="last">最后一段</p><script>document.querySelector("#open").onclick=()=>document.querySelector("#settings").style.display="block";document.querySelector("#edit").oninput=e=>document.querySelector("#out").textContent=e.target.value;</script></body></html>';
+const row={id:'m',...await interactiveReadingHtml(fixture)};const errors=[];const calls=[];
+try{
+ browser=await chromium.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true});const context=await browser.newContext();const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
+ await page.route('https://fixture.invalid/**',async route=>{const url=new URL(route.request().url());if(url.pathname==='/')return route.fulfill({contentType:'text/html',body:'<!DOCTYPE html><style>body{margin:0;background:#222}#app{max-width:920px;margin:auto}</style><div id="app"></div>'});try{const body=route.request().postDataJSON();calls.push(url.pathname);const value=url.pathname.endsWith('/action')?await runtime.act(body.sessionId,body.messageId,body.token,body.input):await runtime.render(body.sessionId,row,body.width);await route.fulfill({contentType:'application/json',body:JSON.stringify(value)});}catch{await route.fulfill({status:500,contentType:'application/json',body:'{"error":"fixture failed"}'});}});
+ await page.goto('https://fixture.invalid/');await page.addScriptTag({content:bundle.outputFiles[0].text});await page.evaluate(row=>window.renderRow(row),row);
+ const frame=page.frameLocator('iframe[title="写作正文"]');await frame.locator('#text').waitFor();assert.equal(await page.locator('section > img').count(),0);
+ await frame.locator('#text').evaluate(node=>{const r=document.createRange();r.selectNodeContents(node);getSelection().removeAllRanges();getSelection().addRange(r);});
+ assert.equal(await frame.locator('body').evaluate(()=>getSelection().toString()),'可选择复制的合成正文，不是图片。');
+ await frame.locator('body').evaluate(()=>getSelection().removeAllRanges());
+ await frame.locator('#open').click();await frame.locator('#settings').waitFor({state:'visible'});
+ await frame.locator('#edit').fill('直接输入内容');await frame.locator('#out').getByText('直接输入内容',{exact:true}).waitFor();
+ assert.equal(await frame.locator('#edit').inputValue(),'直接输入内容');
+ await frame.locator('#select').selectOption('b');await page.waitForFunction(()=>document.querySelector('iframe')?.contentDocument?.querySelector('#select')?.value==='b');
+ await page.waitForTimeout(500);const entry=[...runtime.entries.values()][0];assert.equal(await entry.page.locator('#select').inputValue(),'b');
+ await frame.locator('#details summary').click();await page.waitForFunction(()=>document.querySelector('iframe')?.contentDocument?.querySelector('#details')?.open===true);
+ assert.ok(await page.locator('iframe').evaluate(el=>el.clientHeight)>14000);assert.equal(await frame.locator('#last').textContent(),'最后一段');
+ await page.setViewportSize({width:480,height:900});await page.waitForTimeout(700);assert.ok(await frame.locator('body').evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+ await page.waitForTimeout(500);assert.equal(errors.length,0,JSON.stringify(errors));console.log(JSON.stringify({realComponent:true,domText:true,selection:true,inputEcho:true,select:true,details:true,unclippedLongDocument:true,narrowWidth:true,errors:0,calls:calls.length}));
+}finally{await browser?.close();await runtime.dispose();fs.rmSync(root,{recursive:true,force:true});}

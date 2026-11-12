@@ -1846,50 +1846,89 @@ window.__ModuleLoader__.load({
     }
 
     function ReadingFrame({row,sessionId}){
-      const wrapper=useRef(null),frame=useRef(null),[surface,setSurface]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[text,setText]=useState('');
-      const generation=useRef(0);
+      const wrapper=useRef(null),frame=useRef(null),surfaceRef=useRef(null),generation=useRef(0),queue=useRef(Promise.resolve()),actRef=useRef(null),focusRef=useRef(null),loadRef=useRef(null);
+      const edits=useRef(new Map()),timers=useRef(new Map()),editSerial=useRef(0);
+      const [surface,setSurface]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
       const load=useCallback(async()=>{
         const current=++generation.current;setBusy(true);setError('');
-        try{const width=Math.round(wrapper.current?.clientWidth||920);const result=await api('POST','/reading/document',{sessionId,messageId:row.id,width});if(generation.current===current)setSurface(result);}
+        try{const result=await api('POST','/reading/document',{sessionId,messageId:row.id,width:Math.round(wrapper.current?.clientWidth||920)});if(generation.current===current){surfaceRef.current=result;setSurface(result);}}
         catch(e){if(generation.current===current)setError(e.message);}
         finally{if(generation.current===current)setBusy(false);}
       },[sessionId,row.id,row.html,row.head]);
-      useEffect(()=>{setSurface(null);if(row.interactive)void load();return()=>{generation.current++;};},[row.interactive,load]);
-      useEffect(()=>{
-        if(row.interactive)return;const node=frame.current;let observer;
-        const resize=()=>{try{node.style.height=Math.min(14000,Math.max(40,node.contentDocument.body.scrollHeight+16))+'px';}catch{}};
-        const ready=()=>{resize();try{observer=new ResizeObserver(resize);observer.observe(node.contentDocument.body);}catch{}};
-        node.addEventListener('load',ready);if(node.contentDocument?.readyState==='complete')ready();
-        return()=>{node.removeEventListener('load',ready);observer?.disconnect();};
-      },[row.interactive,row.html]);
-      const act=async input=>{
-        if(busy||!surface)return;const current=++generation.current;setBusy(true);setError('');
-        try{const value=await api('POST','/reading/document/action',{sessionId,messageId:row.id,token:surface.token,input});if(current===generation.current)setSurface(value);}
-        catch(e){if(current===generation.current)setError(e.message);}
-        finally{if(current===generation.current)setBusy(false);}
+      loadRef.current=load;
+      useEffect(()=>{surfaceRef.current=null;setSurface(null);edits.current.clear();for(const timer of timers.current.values())clearTimeout(timer);timers.current.clear();if(row.interactive)void load();return()=>{generation.current++;for(const timer of timers.current.values())clearTimeout(timer);timers.current.clear();};},[row.interactive,load]);
+      actRef.current=input=>{
+        const current=generation.current;
+        const execute=async()=>{
+          if(generation.current!==current||!surfaceRef.current)return;
+          setBusy(true);setError('');
+          try{const result=await api('POST','/reading/document/action',{sessionId,messageId:row.id,token:surfaceRef.current.token,input});if(current===generation.current){if(input.localRevision&&edits.current.get(input.nodeId)?.revision===input.localRevision)edits.current.delete(input.nodeId);try{const el=frame.current?.contentDocument?.activeElement;if(el?.matches('input,textarea,select'))focusRef.current={id:el.dataset.readingNode,start:el.selectionStart,end:el.selectionEnd};}catch{}surfaceRef.current=result;setSurface(result);}}
+          catch(e){if(current===generation.current)setError(e.message);}
+          finally{if(current===generation.current)setBusy(false);}
+        };
+        queue.current=queue.current.then(execute,execute);
       };
-      if(!row.interactive){
-        const doc='<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; base-uri \'none\'; form-action \'none\'"><style>:root{color-scheme:light dark}body{margin:0;padding:4px;font:15px/1.75 system-ui;overflow-wrap:anywhere}img{max-width:100%}pre{white-space:pre-wrap}details{padding:8px;border:1px solid #8884;border-radius:8px}</style>'+row.html;
-        return h('iframe',{ref:frame,title:'写作正文',sandbox:'allow-same-origin',srcDoc:doc,style:{border:0,width:'100%',minHeight:40,display:'block'}});
-      }
-      return h('section',{ref:wrapper,'data-reading-document':true,style:{minWidth:0}},[
-        h('div',{key:'toolbar',style:{display:'flex',alignItems:'center',gap:8,fontSize:12,marginBottom:8,flexWrap:'wrap'}},[
-          h('span',{key:'state',style:{opacity:.6}},busy?'正在加载美化…':'完整美化 · 点击画面中的控件操作'),
-          h('button',{key:'refresh',type:'button',disabled:busy,onClick:load},surface?'重新加载':'加载美化'),
+      const doc= row.interactive ? surface?.document : '<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'none\'; style-src \'unsafe-inline\'; img-src data:; base-uri \'none\'; form-action \'none\'"><style>:root{color-scheme:light dark}body{margin:0;padding:4px;font:15px/1.75 system-ui;overflow-wrap:anywhere}img{max-width:100%}pre{white-space:pre-wrap}details{padding:8px;border:1px solid #8884;border-radius:8px}</style>'+row.html;
+      useEffect(()=>{
+        const node=frame.current;if(!node)return;let observer,mutation,resizePending=false,disposed=false,cleanDocument=()=>{};
+        const resize=()=>{
+          if(resizePending||disposed)return;resizePending=true;
+          requestAnimationFrame(()=>{
+            resizePending=false;if(disposed)return;
+            try{const body=node.contentDocument?.body;if(!body)return;node.style.height='1px';const height=Math.max(40,body.scrollHeight,node.contentDocument.documentElement.scrollHeight);node.style.height=height+2+'px';}catch{}
+          });
+        };
+        const ready=()=>{
+          cleanDocument();observer?.disconnect();mutation?.disconnect();
+          const document=node.contentDocument;if(!document?.body)return;
+          const captureFocus=()=>{const el=document.activeElement;if(el?.matches('input,textarea,select'))focusRef.current={id:el.dataset.readingNode,start:el.selectionStart,end:el.selectionEnd};};
+          const click=event=>{
+            if(!row.interactive||event.button!==0)return;
+            const target=event.target.nodeType===1?event.target:event.target.parentElement;
+            if(!target||target.closest('input,select,textarea,label'))return;
+            if(document.getSelection()?.toString())return;
+            const control=target.closest('[data-reading-node]');if(!control)return;
+            event.preventDefault();focusRef.current=null;actRef.current?.({type:'node-click',nodeId:control.dataset.readingNode});
+          };
+          const change=(event,immediate=true)=>{
+            if(!row.interactive)return;const el=event.target;if(!el?.matches('input,textarea,select')||!el.dataset.readingNode||el.type==='file')return;
+            captureFocus();
+            const input={type:'node-change',nodeId:el.dataset.readingNode};
+            if(el.matches('select'))input.values=[...el.selectedOptions].map(o=>o.value);
+            else if(['checkbox','radio'].includes(el.type))input.checked=el.checked;
+            else input.value=el.value;
+            input.localRevision=++editSerial.current;edits.current.set(input.nodeId,{...input,revision:input.localRevision});clearTimeout(timers.current.get(input.nodeId));
+            if(immediate)actRef.current?.(input);else timers.current.set(input.nodeId,setTimeout(()=>actRef.current?.(input),250));
+          };
+          const changed=event=>change(event,true);
+          const inputted=event=>{if(!['checkbox','radio'].includes(event.target.type))change(event,false);};
+          const key=event=>{
+            if(!row.interactive||event.key!=='Enter'||event.target?.tagName==='TEXTAREA'||!event.target?.dataset?.readingNode)return;
+            event.preventDefault();change(event);actRef.current?.({type:'node-key',nodeId:event.target.dataset.readingNode,key:'Enter'});
+          };
+          const blockSubmit=event=>event.preventDefault();
+          document.addEventListener('click',click);document.addEventListener('change',changed);document.addEventListener('input',inputted);document.addEventListener('keydown',key);document.addEventListener('submit',blockSubmit);document.addEventListener('toggle',resize,true);document.addEventListener('load',resize,true);
+          cleanDocument=()=>{document.removeEventListener('click',click);document.removeEventListener('change',changed);document.removeEventListener('input',inputted);document.removeEventListener('keydown',key);document.removeEventListener('submit',blockSubmit);document.removeEventListener('toggle',resize,true);document.removeEventListener('load',resize,true);};
+          for(const [id,pending]of edits.current){const el=document.querySelector('[data-reading-node="'+id+'"]');if(!el)continue;if(pending.values)for(const option of el.options)option.selected=pending.values.includes(option.value);else if(typeof pending.checked==='boolean')el.checked=pending.checked;else el.value=pending.value;}
+          const focus=focusRef.current;if(focus?.id){const el=document.querySelector('[data-reading-node="'+focus.id+'"]');if(el){el.focus({preventScroll:true});try{if(focus.start!=null)el.setSelectionRange(focus.start,focus.end);}catch{}}}
+          observer=new ResizeObserver(resize);observer.observe(document.body);mutation=new MutationObserver(resize);mutation.observe(document.body,{subtree:true,childList:true,attributes:true,characterData:true});resize();
+        };
+        node.addEventListener('load',ready);if(node.contentDocument?.readyState==='complete')ready();
+        return()=>{disposed=true;node.removeEventListener('load',ready);cleanDocument();observer?.disconnect();mutation?.disconnect();};
+      },[doc,row.interactive]);
+      useEffect(()=>{
+        if(!row.interactive||!wrapper.current)return;let timer;let width=Math.round(wrapper.current.clientWidth);
+        const observer=new ResizeObserver(entries=>{const next=Math.round(entries[0].contentRect.width);if(Math.abs(next-width)<2)return;width=next;clearTimeout(timer);timer=setTimeout(()=>loadRef.current?.(),180);});observer.observe(wrapper.current);return()=>{clearTimeout(timer);observer.disconnect();};
+      },[row.interactive]);
+      return h('section',{ref:wrapper,'data-reading-document':true,'data-reading-format':'html',style:{minWidth:0}},[
+        row.interactive?h('div',{key:'toolbar',style:{display:'flex',alignItems:'center',gap:8,fontSize:12,marginBottom:8,flexWrap:'wrap'}},[
+          h('span',{key:'state',style:{opacity:.6}},busy?'正在更新…':'正文 · 可选择并复制文字'),
+          h('button',{key:'refresh',type:'button',disabled:busy,onClick:load},surface?'刷新':'加载正文'),
           surface?.issues?h('span',{key:'issues',style:{opacity:.65}},'部分脚本功能未完成'):null,
           row.imagesFailed?h('span',{key:'images'},`${row.imagesFailed} 张插图暂未加载`):null,
-        ]),
+        ]):null,
         error?h('div',{key:'error',role:'alert'},error):null,
-        surface?h('img',{key:'image',src:surface.image,alt:'完整美化的写作正文',tabIndex:0,style:{width:'100%',display:'block',cursor:busy?'wait':'auto',borderRadius:8},onClick:event=>{const box=event.currentTarget.getBoundingClientRect();void act({type:'click',x:(event.clientX-box.left)*surface.width/box.width,y:(event.clientY-box.top)*surface.height/box.height});},onKeyDown:event=>{const key=event.key===' '?'Space':event.key;if(['Enter','Tab','Escape','Backspace','Delete','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(key)){event.preventDefault();void act({type:'key',key});}}}):null,
-        h('details',{key:'text',style:{marginTop:6,fontSize:12}},[
-          h('summary',{key:'summary',style:{cursor:'pointer'}},'向美化页面输入文字'),
-          h('div',{key:'row',style:{display:'flex',gap:6,marginTop:8}},[
-            h('input',{key:'input',value:text,'aria-label':'美化页面输入文字',placeholder:'先点击画面中的输入框',style:{minWidth:0,flex:1},onChange:event=>setText(event.target.value)}),
-            h('button',{key:'send',disabled:busy||!text,onClick:()=>act({type:'text',text})},'输入'),
-            h('button',{key:'enter',disabled:busy,onClick:()=>act({type:'key',key:'Enter'})},'回车'),
-          ]),
-        ]),
-        surface?.truncated?h('div',{key:'truncated'},'此美化页面过长，当前展示前 10000 像素；原文仍完整保留。'):null,
+        doc?h('iframe',{key:'document',ref:frame,title:'写作正文',sandbox:'allow-same-origin',srcDoc:doc,style:{border:0,width:'100%',minHeight:40,display:'block'},'aria-busy':busy}):null,
       ]);
     }
     function WritingReadingView({sessionId,useProjection,useSession}){

@@ -2,7 +2,7 @@
 
 为 DeepSeek Harness 增加“写作模式”。在正常聊天输入框创作，插件负责预设、世界书、角色卡、正则和扩展处理，回复保存在 DSH 会话历史中。
 
-当前版本 **0.5.2**。已验证 Windows / DSH **0.2.2-rc.1**。这不是完整 SillyTavern 的移植；支持范围和仍未解决的问题见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)，开发记录见 [HANDOFF.md](HANDOFF.md)。
+当前版本 **0.5.3**。已验证 Windows / DSH **0.2.2-rc.1**。这不是完整 SillyTavern 的移植；支持范围和仍未解决的问题见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)，开发记录见 [HANDOFF.md](HANDOFF.md)。
 
 ## 安装与更新
 
@@ -50,9 +50,9 @@
 
 正则按全局 → 当前预设 → 当前角色卡执行，来源、条目开关分别生效。发送与显示是不同路径：`promptOnly` 处理发送副本，`markdownOnly` 在“写作阅读”显示；不改原始历史。
 
-写作阅读支持 Markdown、HTML/CSS、`details` 折叠以及空白替换隐藏。可随时打开“显示原文”。普通静态正文使用无脚本 iframe；完整 HTML 美化文档在独立浏览器中执行，由画面与点击/文字输入代理接入，不能接触 DSH 页面或凭证。当前在回复完成后刷新，不是逐 token 渲染。
+写作阅读支持 Markdown、HTML/CSS、`details` 折叠以及空白替换隐藏。可随时打开“显示原文”。普通静态正文使用无脚本 iframe；完整 HTML 美化文档在独立浏览器中执行，其渲染后的 HTML 以可选择文本的隔离 iframe 显示，控件事件传回独立运行器，不能接触 DSH 页面或凭证。当前在回复完成后刷新，不是逐 token 渲染。
 
-0.5.1 修复完整 HTML 被当作 Markdown、ID/控件被移除、混合 HTML/Markdown 中脚本被改坏和远程插图丢失的问题。公开 HTTPS 图片通过不带 Cookie/凭证的本地下载器获取，逐跳校验地址并缓存为内联图片。脚本本身的网络、WebSocket、导航、文件和弹窗仍被限制。字体/部分外部资源不加载，使用本地回退。点击完整美化画面可交互，文字输入展开画面下方的输入区；显示设置按会话和消息隔离保存。
+0.5.1 修复完整 HTML 被当作 Markdown、ID/控件被移除、混合 HTML/Markdown 中脚本被改坏和远程插图丢失的问题。公开 HTTPS 图片通过不带 Cookie/凭证的本地下载器获取，逐跳校验地址并缓存为内联图片。脚本本身的网络、WebSocket、导航、文件和弹窗仍被限制。字体/部分外部资源不加载，使用本地回退。正文可直接选择和复制，按钮与输入框在文档中直接操作；显示设置按会话和消息隔离保存。
 
 0.5.2 修复透明文档截图的浅字白底：仅在文档没有设置背景时，根据文字颜色补足底色，并在操作后重新检查。脚本界面增加深色宿主样式、设置折叠和控件间距；仅执行后台脚本的空 iframe 不占位置，稍后生成的可视内容会重新显示。兼容提示按错误类别和公开接口归类，并保留累计次数；重复报错仍会使失败的按钮操作回滚，不表示对应功能已经修好。
 
@@ -126,3 +126,11 @@ node scripts/verify-resident-suite.mjs <本地validation-suite.json> <报告.jso
 - SPreset `starowo/starowo.github.io` 的 `regex_bind/inject.js`，提交 `53bd585da14248ba10baaede7fc7ed0cebe1eeeb`
 
 依赖与许可说明：[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。项目非 SillyTavern 或 DeepSeek 官方插件，仓库未附私人素材，也未指定对外开源许可证。
+
+## 0.5.3 正文文本修复
+
+修复“完整美化”将整段正文截图成PNG的问题。正文现在显示渲染后的真实HTML文本，支持文字选择/复制、原生表单控件、details展开及按内容高度排版；不再限制为前10000像素。图片仍是原有插图，局部canvas可转换为图片，但不把整篇文字栅格化。
+
+参考SillyTavern script.js 的 messageFormatting/mes_text，以及JS-Slash-Runner的panel/render/Iframe.vue、iframe.ts：正文应为DOM，前端界面应在iframe中呈现。DSH仍在独立浏览器执行源脚本，再向阅读iframe提供净化后的DOM并代理控件事件；不等同于酒馆完整同源脚本环境。动态动画、拖拽及宿主API兼容仍属未完成项。
+
+新增reading-dom和reading-client测试，验证实际React组件的文本选择、输入、折叠、长文末尾、窄屏与脚本隔离。固定套装仅程序结构检查：243个文本节点、39个控件、5张插图，正文非整页图片；未显示素材内容、未调用模型、未改原始历史。

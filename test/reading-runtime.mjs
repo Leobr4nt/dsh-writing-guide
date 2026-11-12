@@ -5,7 +5,7 @@ const document='<html><head><style>#settings{display:none}#toggle{position:absol
 try{
   const row={id:'m',...await interactiveReadingHtml(document)};
   let surface=await runtime.render('s',row,800),entry=[...runtime.entries.values()][0];
-  assert.ok(surface.image.startsWith('data:image/png;base64,'));assert.equal(await entry.page.locator('#settings').isVisible(),false);
+  assert.equal(surface.format,'html');assert.match(surface.document,/FIXTURE/);assert.equal(surface.image,undefined);assert.equal(await entry.page.locator('#settings').isVisible(),false);
   await runtime.act('s','m',surface.token,{type:'click',x:40,y:25});assert.equal(await entry.page.locator('#settings').isVisible(),true);
   await runtime.act('s','m',surface.token,{type:'click',x:25,y:72});await runtime.act('s','m',surface.token,{type:'key',key:'Backspace'});await runtime.act('s','m',surface.token,{type:'text',text:'22'});
   const saved=await entry.page.locator('#font').inputValue();await runtime.dispose();runtime=new ReadingRuntime(root);surface=await runtime.render('s',row,800);entry=[...runtime.entries.values()][0];assert.equal(await entry.page.locator('#font').inputValue(),saved);
@@ -13,5 +13,5 @@ try{
   await assert.rejects(runtime.act('other','m',surface.token,{type:'refresh'}),/EXPIRED/);
   await assert.rejects(runtime.act('s','m','wrong',{type:'refresh'}),/EXPIRED/);
   const before=await entry.page.locator('script').count();assert.ok(before>=2);
-  console.log('reading-runtime: full document controls, persisted settings, scoped actions, image presentation and isolated browser passed');
+  console.log('reading-runtime: full document controls, persisted settings, scoped actions, selectable DOM presentation and isolated browser passed');
 }finally{await runtime.dispose();await rm(root,{recursive:true,force:true});}

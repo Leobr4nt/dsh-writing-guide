@@ -1204,6 +1204,19 @@ window.__ModuleLoader__.load({
       ]);
     }
 
+    function HelperScriptForm({text,onChange}){
+      let item;try{item=JSON.parse(text);}catch{return h('div',{className:'wg-hint'},'JSON 尚未完整，请先修正高级编辑内容。');}
+      if(!item||typeof item!=='object'||Array.isArray(item))return null;
+      const folder=item.type==='folder',patch=value=>onChange(JSON.stringify({...item,...value},null,2));
+      return h('div',{className:'wg-card','aria-label':folder?'文件夹编辑':'脚本编辑'},[
+        h('h4',{key:'title'},folder?'编辑文件夹':'编辑脚本'),
+        h(Field,{key:'name',label:folder?'文件夹名称':'脚本名称'},h('input',{'data-helper-name':true,value:item.name??'',onChange:e=>patch({name:e.target.value})})),
+        !folder?h(Field,{key:'content',label:'脚本内容'},h('textarea',{value:item.content??'',spellCheck:false,style:{minHeight:260,fontFamily:'ui-monospace, Consolas, monospace'},onChange:e=>patch({content:e.target.value})})):null,
+        !folder?h(Field,{key:'info',label:'作者备注'},h('textarea',{value:item.info??'',onChange:e=>patch({info:e.target.value})})):null,
+        h('div',{key:'hint',className:'wg-hint'},'修改后点击“保存到所属素材”生效。变量、按钮和其他字段保留，也可在高级 JSON 中编辑。'),
+      ]);
+    }
+
     function ExtensionsPanel({ data, notify, fail, scopeSession, onScopeSessionChange, initialTarget }) {
       const [section,setSection]=useState(initialTarget?.kind==='helper'?'helper':'regex'),[state,setState]=useState(null),[sessions,setSessions]=useState([]);
       const [inspect,setInspect]=useState(!!initialTarget),[presetId,setPresetId]=useState(initialTarget?.type==='preset'?initialTarget.id:''),[cardId,setCardId]=useState(initialTarget?.type==='character'?initialTarget.id:'');
@@ -1212,6 +1225,15 @@ window.__ModuleLoader__.load({
       const [previewText,setPreviewText]=useState(''),[mode,setMode]=useState('send'),[placement,setPlacement]=useState(2),[depth,setDepth]=useState(0);
       const selection={sessionId:inspect?'':scopeSession,inspect,presetId,cardId};
       const requestSeq=useRef(0);
+      const editorRef=useRef(null);
+      useEffect(()=>{
+        if(!editor)return;
+        const frame=requestAnimationFrame(()=>{
+          editorRef.current?.scrollIntoView({block:'start'});
+          editorRef.current?.querySelector('input,textarea')?.focus({preventScroll:true});
+        });
+        return()=>cancelAnimationFrame(frame);
+      },[editor]);
       const load=useCallback(async()=>{
         const seq=++requestSeq.current;
         try {
@@ -1294,17 +1316,22 @@ window.__ModuleLoader__.load({
             button('导出此来源',download),
             h('label',{className:'wg-btn'},['选择 JSON 文件',h('input',{type:'file',accept:'.json,application/json',style:{display:'none'},disabled:busy,onChange:async e=>{try{setEditor({scope,kind,revision:rev,import:true});setText(await e.target.files[0].text());}catch(x){fail(x);}e.target.value='';}})]),
           ]),
-          kind==='regex'&&editor&&!editor.import?h(RegexRuleForm,{text,onChange:setText}):null,
-          h('details',{key:'json',className:'wg-disclosure',open:editor?.import===true},[
-            h('summary',{key:'summary'},editor?.import?'导入 JSON':'高级 JSON 编辑'),
-            h('div',{key:'body',className:'wg-disclosure-body'},h(Field,{label:'条目 JSON / 导入内容'},h('textarea',{value:text,onChange:e=>{setText(e.target.value);if(!editor)setEditor({scope,kind,revision:rev,import:true});}}))),
+          h('fieldset',{key:'editor',ref:editorRef,'data-extension-editor':true,disabled:busy,style:{border:0,padding:0,margin:0,minWidth:0,display:'flex',flexDirection:'column',gap:12}},[
+            editor&&!editor.import?h(kind==='regex'?RegexRuleForm:HelperScriptForm,{key:'form',text,onChange:setText}):null,
+            h('details',{key:'json',className:'wg-disclosure',open:editor?.import===true},[
+              h('summary',{key:'summary'},editor?.import?'导入 JSON':'高级 JSON 编辑'),
+              h('div',{key:'body',className:'wg-disclosure-body'},h(Field,{label:'条目 JSON / 导入内容'},h('textarea',{value:text,onChange:e=>{setText(e.target.value);if(!editor)setEditor({scope,kind,revision:rev,import:true});}}))),
+            ]),
+            h('div',{key:'actions',className:'wg-bar'},[
+              button(editor?.import?'导入到所选来源':'保存到所属素材',()=>act(async()=>{
+                if(!editor)throw Error('请先选择编辑或导入');const item=JSON.parse(text);
+                if(editor.import||editor.path===null)return api('POST','/extensions/scope/import',{...editor,data:item});
+                const next=JSON.parse(JSON.stringify(editor.items));let list=next;for(const i of editor.path.slice(0,-1))list=list[i].scripts;list[editor.path.at(-1)]=item;
+                return api('POST','/extensions/scope/save',{scope:editor.scope,kind:editor.kind,revision:editor.revision,items:next});
+              }),!editor||!text.trim()),
+              editor?button('取消编辑',()=>{setEditor(null);setText('');}):null,
+            ]),
           ]),
-          button(editor?.import?'导入到所选来源':'保存到所属素材',()=>act(async()=>{
-            if(!editor)throw Error('请先选择编辑或导入');const item=JSON.parse(text);
-            if(editor.import||editor.path===null)return api('POST','/extensions/scope/import',{...editor,data:item});
-            const next=editor.items;let list=next;for(const i of editor.path.slice(0,-1))list=list[i].scripts;list[editor.path.at(-1)]=item;
-            return api('POST','/extensions/scope/save',{scope:editor.scope,kind:editor.kind,revision:editor.revision,items:next});
-          }),!text.trim()),
         ]):null,
         section==='regex'?h('div',{key:'preview',className:'wg-card'},[
           h('h4',{},'预览当前来源组合（遵循各来源和条目开关）'),

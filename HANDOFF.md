@@ -1,6 +1,6 @@
 # 交接：DSH 写作模式 / SillyTavern 兼容插件
 
-更新时间：2026-11-12。当前版本：0.5.8（常驻运行器仍有兼容边界）。下文旧开发机记录按历史保留，最新进度见文末及 KNOWN_ISSUES.md。
+更新时间：2026-11-12。当前版本：0.5.9（常驻运行器仍有兼容边界）。下文旧开发机记录按历史保留，最新进度见文末及 KNOWN_ISSUES.md。
 
 > 接手先读本文，再看 README.md。不要把模块加载成功、无异常返回或单元测试通过，写成“完整酒馆兼容”。
 
@@ -238,3 +238,11 @@ QuickJS 提供三个读取别名与 local/message setter 薄别名，Lodash rand
 新增 template-variable-readers 合成回归：QuickJS/真实无界面浏览器一致、默认值/null/路径/clone/index/noCache、旧表继承及空表停止回溯、不恢复主动删除的数据、隔离与随机稳定、实际 hook 的失败/取消回滚和成功持久化。固定套装只检查结构和结果计数；空/已有变量各 23 条配置消息完成模板渲染且残留 EJS 为 0，素材和状态哈希不变，模型请求为 0。
 
 完整测试 48 文件、0 失败；最终缓存隔离修正后复跑 7 个相关测试仍全部通过。固定套装常驻路径复测：9 个模块加载、2 本书初始化、MVU 更新及恢复、23 条模板通过，corePassed=true，inputsAndStateUnchanged=true。原有 NETWORK_BLOCKED 和 MISSING_API 各 1 条仍在；fullCompatibility=false，不据此宣称整套脚本已兼容。版本待正常退出 DSH 后部署，避免热替换。
+
+## 0.5.9 酒馆助手编辑入口（2026-11-12）
+
+旧 ExtensionsPanel 点击编辑仅 setEditor/setText，details.open 只对 import 为 true；正则有独立表单，helper 没有，造成用户看到“没有反应”。核对 JS-Slash-Runner ScriptItem/ScriptEditor/FolderEditor 后，增加 HelperScriptForm（名称、content、info，文件夹只改 name），保留原 JSON 中 data/button/export_with/id/enabled 和未知字段。编辑区自动 scrollIntoView/focus；取消清空草稿但不保存。保存继续使用原 source/path/revision，保存构造不再原地改 editor.items。
+
+新增完整 React+真实临时路由 helper-editor 回归。旧 client.js 在“点击编辑必须显示代码输入框”断言失败；新版本覆盖全局、预设、嵌套角色卡、文件夹、新建、取消、非法 JSON、导入取消、正则表单、480px，确保不改绑定、不启用/执行脚本。本轮不查看私人脚本和变量，也不运行套装脚本；生产后端和写作流水线未改。
+
+本轮按前端变更范围运行 helper-editor、material-extension-links、writing-config、client-api，四项通过；client.js 语法检查和 git diff --check 通过，480px 合成页面截图已核对。未重跑全量模型/常驻运行测试。部署后需重新加载 DSH 前端才能使用新编辑表单。

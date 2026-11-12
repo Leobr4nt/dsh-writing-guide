@@ -2,7 +2,7 @@
 
 为 DeepSeek Harness 增加“写作模式”。在正常聊天输入框创作，插件负责预设、世界书、角色卡、正则和扩展处理，回复保存在 DSH 会话历史中。
 
-当前版本 **0.5.4**。已验证 Windows / DSH **0.2.2-rc.1**。这不是完整 SillyTavern 的移植；支持范围和仍未解决的问题见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)，开发记录见 [HANDOFF.md](HANDOFF.md)。
+当前版本 **0.5.5**。已验证 Windows / DSH **0.2.2-rc.1**。这不是完整 SillyTavern 的移植；支持范围和仍未解决的问题见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)，开发记录见 [HANDOFF.md](HANDOFF.md)。
 
 ## 安装与更新
 
@@ -140,3 +140,7 @@ node scripts/verify-resident-suite.mjs <本地validation-suite.json> <报告.jso
 完整HTML前端文档在Markdown解析前分离为独立片段，普通正文和每个前端文档分别显示，避免把HTML围栏/资源标签当作文字、跨文档CSS污染。公开HTTPS样式表经过与图片相同的地址/DNS/重定向校验后本地缓存内联；不携带凭证，每份限制2MB。二级@import/字体等请求仍受限制，失败样式有提示。动态CSSOM规则和根主题属性也随DOM保留。
 
 截图对应历史消息结构复测：3个显示片段，外部样式2份恢复，22个控件默认只显示6个，代码围栏和转义资源标签均为0，投影前后控件样式差异0。素材正文/脚本不展示，原始会话不修改。另一固定套装的结构回归仍有1个按钮颜色差异，未据此宣称全部样式完全一致。
+
+## 0.5.5 摘要折叠边界修复
+
+前端代码围栏和完整HTML文档之间含注释或空行时，仍将它们视为一个前端块并成对移除围栏，保留HTML注释。避免遗留结束围栏被Markdown解释成新的代码块，导致后续details/summary显示为标签文本。摘要继续按浏览器原生details折叠，原始消息和摘要内容不修改；不对有意展示的代码示例做全局反转义。

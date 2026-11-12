@@ -206,3 +206,7 @@ SPreset按公开源码补齐主要配置的执行路径及预设编辑控件；�
 0.5.3只解决整页PNG，但未覆盖混合HTML前端文档与外部CSS依赖。用户再次截图反馈控制面板铺开。新增splitReadingDocuments按实际完整文档边界在Markdown之前分离，message.parts提供独立ReadingFrame和对应document/action定位；保留源头stylesheet并通过公开HTTPS安全下载器内联缓存；snapshotReadingDom补CSSOM和根color-scheme。不要恢复“混成一个div再截图”的旧方案。
 
 新增reading-fragments及实际React多片段回归。真实素材仍只输出结构数量与CSS比较结果：截图对应消息样式恢复、默认面板折叠、无围栏/标签泄漏，原文未显示。源码边界依据酒馆助手render/Iframe.vue与isFrontend判定，不表示完整宿主生命周期已移植。其它开放问题保持。
+
+## 0.5.5 摘要折叠修复（2026-11-12）
+
+用户报告摘要标签像文本显示。只读结构定位到HTML前端围栏与doctype之间的注释被splitReadingDocuments漏判，尾部```独立出来吞掉后置摘要。允许围栏内前导注释/空行并保留其内容，unwrapReading同样忽略前导注释判定文档。新增reading-summary合成测试覆盖CRLF、两种围栏、注释保真、原生展开/收起和有意代码不误解释；真实消息仅检查标签计数、非空与点击状态，未显示正文或修改聊天历史。

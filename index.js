@@ -7,10 +7,8 @@ import { ExtensionScopes } from './lib/extension-scopes.js';
  * 职责：
  *   1. 数据根（默认 ~/.dsh/writing-guide/）里的世界书与预设的读写；
  *   2. /api/writing-guide/* 给面板用；
- *   3. 一个 prompt section：按「当前会话的 DSH 模式」把预设 + 命中世界书注入系统提示词；
- *   4. 一个 Agent 工具 writing_guide，让模型自己也能看/改这些数据。
- *
- * 插件本身不调用模型，只管「喂设定」。
+ *   3. 写作会话 hook：按绑定组装预设、世界书和卡片，并使用选定的写作模型；
+ *   4. writing_guide 管理工具及旧系统段/作品归档兼容接口。
  */
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -34,6 +32,7 @@ import {spresetOutput,spresetFinalRequest,spresetTool} from './lib/spreset.js';
 import {ReadingRuntime} from './lib/reading-runtime.js';
 import Ajv from 'ajv';
 import {estimateTokens} from './lib/budget.js';
+import {writingDiagnostic,writingBindingSummary} from './lib/diagnostics.js';
 
 export const inject = ['webServer'];
 
@@ -200,7 +199,7 @@ export function apply(ctx, config = {}) {
 
   const workStore = new WorkStore(store.root);
   /** 薄 Chat Completions transport：只服务作品显式选择的 chat route。 */
-  const chatTransport = async ({ route, plan, maxTokens, temperature, signal }) => {
+  const chatTransport = async ({ route, plan, maxTokens, temperature, signal, onRequest }) => {
     const config = await resolveChatRoute({
       settings: service('settings'),
       provider: route.provider,
@@ -223,7 +222,7 @@ export function apply(ctx, config = {}) {
       const available=plan.meta?.budget?.available;
       const cost=estimateTokens(JSON.stringify(body.messages))+estimateTokens(JSON.stringify(body.tools??[]));
       if(available>0&&cost>available)throw Error('SPRESET_CONTEXT_LIMIT');
-      const result=await postChatCompletion({baseURL:config.baseURL,apiKey,body,signal});
+      const result=await postChatCompletion({baseURL:config.baseURL,apiKey,body,signal,onRequest});
       if(result.usage){combinedUsage??={inputTokens:0,outputTokens:0,totalTokens:0};for(const key of Object.keys(combinedUsage))combinedUsage[key]+=Number(result.usage[key]??0);result.usage={...combinedUsage};}
       if(result.finish!=='tool_calls'){
         if(result.ok)result.content=await spresetOutput(plan.spreset?.config,result.content,{signal});
@@ -394,6 +393,7 @@ export function apply(ctx, config = {}) {
     bindings: bindingCache,
     extensionStore,
     runtime: { runTemplateBatch, runHelperScript },
+    diagnostics: sessionDiagnostics,
     residentManager,
     readSessionMessages,
     readingRuntime,
@@ -469,15 +469,15 @@ export function apply(ctx, config = {}) {
     ctx.effect(() => tools.register({
       name: 'writing_guide',
       description:
-        'Read or edit the writing-guide data: lorebooks, prompt presets, and which DSH modes receive the assembled injection (writer mode by default).',
+        'Manage writing-mode session bindings, models, lorebooks and prompt presets. Normal writing takes place in DSH sessions; legacy section preview is not the actual writing request.',
       parameters: {
         type: 'object',
         properties: {
           action: {
             type: 'string',
-            enum: ['status', 'modes', 'worlds', 'world', 'presets', 'preset', 'world_save', 'preset_save', 'delete', 'set', 'preview'],
+            enum: ['status', 'modes', 'worlds', 'world', 'presets', 'preset', 'world_save', 'preset_save', 'delete', 'set', 'preview', 'presets_list', 'sessions_list', 'session_create', 'session_bind', 'session_unbind', 'session_default', 'session_enable', 'session_list'],
             description:
-              'status/set = injection settings; worlds/world = lorebooks; presets/preset = prompt presets; world_save/preset_save = upsert; delete = remove by id; preview = assemble text; modes = DSH preset roster.',
+              'session_default/session_bind/session_unbind/session_enable/session_list = writing configuration; sessions_list/session_create = DSH sessions; worlds/world = lorebooks; presets/preset = prompt presets; world_save/preset_save = upsert; delete = remove by id; status/set = shared and legacy settings; preview = legacy system-section preview only; modes/presets_list = DSH mode inventory.',
           },
           id: { type: 'string', description: '实体 id（world_*/preset_*/delete/world/preset 用）。' },
           payload: {
@@ -485,7 +485,7 @@ export function apply(ctx, config = {}) {
             description: 'action=set 时为设置 patch；action=world_save/preset_save 时为完整实体。',
             additionalProperties: true,
           },
-          mode: { type: 'string', description: 'preview 用哪个 DSH 模式组装（默认最近一次真实组装的模式）。' },
+          mode: { type: 'string', description: '旧系统段 preview 的 DSH 模式；不是写作会话的组装预览。' },
           scanText: { type: 'string', description: 'preview 用的世界书扫描文本。' },
         },
         required: ['action'],
@@ -571,9 +571,9 @@ export function apply(ctx, config = {}) {
           ok: true,
           detail: JSON.stringify({
             enabled: bindingCache.isEnabled(),
-            defaults: bindingCache.defaults(),
-            bindings: bindingCache.toJSON().bindings,
-            diagnostics: Object.fromEntries(sessionDiagnostics),
+            defaults: writingBindingSummary(bindingCache.defaults()),
+            bindings: Object.fromEntries(Object.entries(bindingCache.toJSON().bindings).map(([id,binding])=>[id,writingBindingSummary(binding)])),
+            diagnostics: Object.fromEntries([...sessionDiagnostics].map(([id,record])=>[id,writingDiagnostic(record)])),
           }, null, 2),
         };
       }
@@ -642,7 +642,7 @@ export function apply(ctx, config = {}) {
             random: () => 0,
             preview: true,
           });
-          const head = `[preview] mode=${mode || '(未知)'} injected=${result.meta.injected} chars=${result.meta.chars}(估算) `
+          const head = `[legacy section preview; not a writing-session request] mode=${mode || '(未知)'} injected=${result.meta.injected} chars=${result.meta.chars}(估算) `
             + `preset=${result.meta.preset || '-'} worlds=${result.meta.worlds.join(',') || '-'} `
             + `depthBlocks=${result.meta.depthBlocks}(不支持真注入) roles=${JSON.stringify(result.meta.roles)} reason=${result.meta.reason}`;
           const omitted = result.meta.omitted?.length
@@ -671,60 +671,15 @@ export function apply(ctx, config = {}) {
     }));
   }
 
-  // ---------------------------------------------------------- 写作生成入口
-  // 为什么独立：llm/stream 对 AgentLoop 请求 deep-frozen，插件只能贡献系统提示词。
-  // 这里自建 GenerateOptions（不冻结），@D/role/PHI 才能真正落在 messages 上。
-  const chatTool = {
-    name: 'writing_chat',
-    description:
-      'Generate one writing turn through this plugin\'s own request path (messages-level world info / @D / role preserved). Separate from the normal DSH conversation: it does not use or modify the agent transcript.',
-    parameters: {
-      type: 'object',
-      properties: {
-        work: { type: 'string', description: '作品 id（先在 writing_work 里创建）' },
-        message: { type: 'string', description: '本轮用户输入' },
-        save: { type: 'boolean', description: '成功后是否把 user/assistant 两条写入作品历史（默认 true）' },
-      },
-      required: ['work', 'message'],
-      additionalProperties: false,
-    },
-    output: {
-      schema: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          ok: { type: 'boolean' },
-          detail: { type: 'string' },
-        },
-        required: ['ok'],
-      },
-      render: (_args, value) => [{ type: 'text', text: String(value?.detail ?? '') }],
-    },
-    async execute(input) {
-      const result = await generateForWork({
-        store,
-        workStore,
-        workId: input?.work,
-        message: input?.message,
-        save: input?.save !== false,
-        llm: service('llm'),
-        model: defaultModel(),
-        chatTransport,
-      });
-      if (!result.ok) return { ok: false, detail: result.detail };
-      return { ok: true, detail: `[writing_chat] ${result.detail}\n\n${result.text}` };
-    },
-  };
-
+  // 旧作品只向模型提供读取与导出；正常创作使用写作模式会话。
   const workTool = {
     name: 'writing_work',
-    description: 'List, create, update, delete writing works (title / preset / world books / author note) used by writing_chat.',
+    description: 'Read or export archived legacy writing works. For new writing, use a normal DSH session in writing mode.',
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['list', 'get', 'save', 'delete', 'export'] },
+        action: { type: 'string', enum: ['list', 'get', 'export'] },
         id: { type: 'string' },
-        payload: { type: 'object', additionalProperties: true },
       },
       required: ['action'],
       additionalProperties: false,
@@ -746,21 +701,11 @@ export function apply(ctx, config = {}) {
         if (action === 'export') return { ok: true, detail: JSON.stringify({ ...meta, chat }, null, 2) };
         return { ok: true, detail: JSON.stringify({ ...meta, messages: chat.length }, null, 2) };
       }
-      if (action === 'delete') {
-        await workStore.remove(String(input?.id ?? ''));
-        return { ok: true, detail: '已删除' };
-      }
-      try {
-        const saved = await workStore.save({ ...(input?.payload ?? {}), id: input?.payload?.id ?? input?.id });
-        return { ok: true, detail: JSON.stringify(saved, null, 2) };
-      } catch (error) {
-        return { ok: false, detail: String(error?.message ?? error) };
-      }
+      return { ok: false, detail: '旧版作品仅提供读取与导出，请在正常写作会话中创作' };
     },
   };
 
   if (tools) {
-    ctx.effect(() => tools.register(chatTool));
     ctx.effect(() => tools.register(workTool));
   }
 

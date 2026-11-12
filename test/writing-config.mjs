@@ -1,0 +1,94 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {Readable} from 'node:stream';
+import {fileURLToPath} from 'node:url';
+import {build} from 'esbuild';
+import {chromium} from 'playwright-core';
+import {GuideStore} from '../lib/store.js';
+import {BindingCache} from '../lib/session-bindings.js';
+import {createGuideRoutes} from '../lib/routes.js';
+import {createSessionHook} from '../lib/session-hook.js';
+
+const root=await fs.mkdtemp(path.join(os.tmpdir(),'wg-config-'));
+let browser;
+try {
+  const store=new GuideStore(root),diagnostics=new Map();await store.ensure();
+  await store.saveSettings({presetId:'legacy',targets:['legacy-mode'],header:'LEGACY_HEADER',authorNote:'LEGACY_NOTE',worldBudgetPercent:37,degradeOrder:true,temperature:0.6,maxTokens:256,vars:{char:'LEGACY_CHAR',user:'LEGACY_USER',persona:'PERSONA'}});
+  await store.savePreset({id:'p',name:'Fixture preset',prompts:[{identifier:'main',content:'MAIN'},{identifier:'charDescription',marker:true},{identifier:'worldInfoBefore',marker:true},{identifier:'chatHistory',marker:true}],prompt_order:[{order:['main','charDescription','worldInfoBefore','chatHistory'].map(identifier=>({identifier,enabled:true}))}]});
+  await store.saveWorld({id:'w',name:'Fixture world',entries:[{uid:1,constant:true,content:'WORLD',position:0}]});
+  await store.saveCard({id:'c',name:'Fixture card',description:'CARD',linkedWorldId:'w'});
+  const bindings=new BindingCache({defaultBinding:{presetId:'p',cardId:'c',provider:'writer-endpoint',model:'writer-model',worldSelection:'none'}});
+  await store.saveBindings(bindings.toJSON());
+  const originalBindings=await fs.readFile(path.join(root,'bindings.json'),'utf8');
+  let response='ok',captured;
+  const hook=createSessionHook({store,diagnostics,transport:async args=>{
+    captured=args;
+    assert.equal(diagnostics.get('s1').phase,'preparing');
+    args.onRequest(args.plan.messages.map(row=>({role:row.role})));
+    assert.equal(diagnostics.get('s1').phase,'requesting');
+    if(response==='error')throw Object.assign(new Error('PRIVATE_ERROR_BODY'),{code:'PRIVATE_ERROR_CODE'});
+    return {ok:response==='ok',finish:response==='length'?'length':'stop',content:'SYNTHETIC_REPLY'};
+  }});
+  const run=async(binding=bindings.defaults(),options={})=>{for await(const _ of hook({provider:'host-default',model:'deepseek',messages:[{role:'user',source:{kind:'user'},content:[{type:'text',text:'SYNTHETIC_INPUT'}]}],...options},'s1',binding)){};};
+  const routes=createGuideRoutes({store,bindings,diagnostics,listModes:()=>[],lastState:()=>({mode:'legacy',injected:true}),defaultModel:()=>({provider:'host-default',model:'deepseek'}),listRoutes:()=>[{provider:'writer-endpoint',model:'writer-model'}],listSessions:()=>[{id:'s1',title:'First',preset:'writer'},{id:'s2',title:'Second',preset:'writer'}],workStore:{list:async()=>[{id:'archive',title:'Archive',messages:1}],load:async()=>({id:'archive',title:'Archive'}),chat:async()=>[{role:'assistant',content:'ARCHIVE_BODY'}]}});
+  const request=async(method,url,body)=>{
+    const req=Readable.from(body?[Buffer.from(body)]:[]);req.method=method;let value,status;
+    const res={setHeader(){},end(text){value=text;status=this.statusCode;}};
+    const handled=await routes(req,res,new URL(url,'https://fixture.invalid'));
+    return {status:handled?status:404,body:value??'{}'};
+  };
+  const diagnostic=async(sessionId='s1')=>JSON.parse((await request('GET','/api/writing-guide/diagnostics?sessionId='+sessionId)).body).last;
+  await run();assert.equal((await diagnostic()).phase,'completed');assert.equal((await diagnostic()).worlds,1);assert.equal((await diagnostic()).writingRoute,'writer-endpoint/writer-model');
+  assert.equal(await diagnostic('s2'),null);assert.equal(await diagnostic(''),null);
+  response='error';await run();const failed=await diagnostic();assert.equal(failed.phase,'failed');assert.equal(failed.requestSent,true);assert.equal(failed.errorCode,'WRITING_GUIDE_FAILED');assert.ok(!JSON.stringify(failed).includes('PRIVATE'));
+  response='length';await run();assert.equal((await diagnostic()).errorCode,'WRITING_GUIDE_OUTPUT_LIMIT');
+  await run({...bindings.defaults(),presetId:'missing'});assert.equal((await diagnostic()).requestSent,false);assert.equal((await diagnostic()).errorCode,'WRITING_GUIDE_BAD_BINDING');
+  await run(bindings.defaults(),{signal:AbortSignal.abort()});assert.equal((await diagnostic()).phase,'aborted');assert.equal((await diagnostic()).requestSent,false);
+  response='ok';await run();
+  assert.deepEqual(Object.keys(await diagnostic()).sort(),['at','phase','requestSent','writingRoute','messages','roles','worlds','outputCap','errorCode'].sort());
+
+  const vendor=await build({stdin:{contents:"import * as React from 'react';import{createRoot}from'react-dom/client';window.React=React;window.mount=component=>createRoot(document.querySelector('#root')).render(React.createElement(component));",resolveDir:fileURLToPath(new URL('../',import.meta.url))},bundle:true,write:false,format:'iife',platform:'browser',logLevel:'silent'});
+  browser=await chromium.launch({executablePath:process.env.DSH_WRITING_BROWSER||'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true});
+  const page=await browser.newPage({viewport:{width:1280,height:1000}}),errors=[],calls=[];
+  page.on('pageerror',error=>errors.push(error.message));
+  await page.route('https://fixture.invalid/**',async route=>{
+    const url=new URL(route.request().url());
+    if(url.pathname==='/')return route.fulfill({contentType:'text/html',body:'<div id="root" style="height:1000px"></div>'});
+    const method=route.request().method(),body=route.request().postData();calls.push({method,path:url.pathname,body});
+    const result=await request(method,url.href,body);await route.fulfill({...result,contentType:'application/json'});
+  });
+  await page.goto('https://fixture.invalid/');await page.addScriptTag({content:vendor.outputFiles[0].text});
+  await page.evaluate(()=>{window.__ModuleLoader__={load(module){const plugin=module.factory(name=>{if(name==='react')return window.React;throw Error('unknown require');});plugin.apply({slots:{inject(name,fn){if(['main','sidebar.panellist'].includes(name))fn();},register(spec,component){if(spec.name==='main')window.mount(component);return ()=>{};}}});}};});
+  await page.addScriptTag({content:await fs.readFile(new URL('../client.js',import.meta.url),'utf8')});
+  await page.getByLabel('配置应用于',{exact:true}).waitFor();
+  assert.equal(await page.locator('.wg-tabs').getByRole('button',{name:'注入',exact:true}).count(),0);
+  const status=page.locator('[data-writing-diagnostics]');await status.getByText(/默认配置本身没有请求记录/).waitFor();
+  await page.getByLabel('配置应用于',{exact:true}).selectOption('s1');await status.getByText('实际请求模型：writer-endpoint/writer-model',{exact:true}).waitFor();
+  assert.ok(!(await status.innerText()).includes('deepseek'));
+  await page.getByLabel('配置应用于',{exact:true}).selectOption('s2');await status.getByText(/尚无写作请求记录/).waitFor();
+  assert.ok(!(await status.innerText()).includes('writer-endpoint'));
+  await page.getByLabel('配置应用于',{exact:true}).selectOption('');
+  const global=page.locator('[data-global-settings]');await global.locator('summary').first().click();
+  await global.getByLabel('世界书扫描消息数',{exact:true}).fill('7');await global.getByLabel('备用温度',{exact:true}).fill('');
+  await global.getByRole('button',{name:'保存全局设置',exact:true}).click();await page.getByText('全局高级设置已保存，对所有写作会话生效',{exact:true}).waitFor();
+  const saved=await store.loadSettings();assert.equal(saved.scanDepth,7);assert.equal(saved.temperature,undefined);
+  for(const [key,value]of Object.entries({presetId:'legacy',header:'LEGACY_HEADER',authorNote:'LEGACY_NOTE',worldBudgetPercent:37,degradeOrder:true}))assert.equal(saved[key],value);
+  assert.equal(saved.vars.char,'LEGACY_CHAR');assert.equal(saved.vars.user,'LEGACY_USER');assert.equal(await fs.readFile(path.join(root,'bindings.json'),'utf8'),originalBindings);
+  await global.getByLabel('使用世界书（包括角色卡关联书）',{exact:true}).uncheck();await global.getByRole('button',{name:'保存全局设置',exact:true}).click();await global.getByText('全局设置已保存',{exact:true}).waitFor();
+  await run();assert.ok(!captured.plan.messages.some(row=>row.content.includes('WORLD')));assert.equal((await diagnostic()).worlds,0);
+  await global.getByLabel('使用绑定的预设',{exact:true}).uncheck();await global.getByRole('button',{name:'保存全局设置',exact:true}).click();await global.getByText('全局设置已保存',{exact:true}).waitFor();
+  await run();assert.ok(!captured.plan.messages.some(row=>row.content.includes('MAIN')));
+  await page.locator('.wg-tabs').getByRole('button',{name:'预设',exact:true}).click();assert.equal(await page.getByText('注入中',{exact:false}).count(),0);assert.equal(await page.locator('.wg-chip').count(),0);
+  await page.getByRole('button',{name:'编辑',exact:true}).click();await page.getByText(/当前会话历史；后置条目/).waitFor();assert.equal(await page.getByText(/注入页|无消息级阶段/).count(),0);
+  await page.locator('.wg-tabs').getByRole('button',{name:'旧版作品',exact:true}).click();await page.getByText('Archive',{exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'+ 新建作品',exact:true}).count(),0);assert.equal(await page.getByRole('button',{name:'生成',exact:true}).count(),0);
+  await page.getByRole('button',{name:'查看',exact:true}).click();await page.getByRole('button',{name:'导出作品 JSON',exact:true}).waitFor();
+  assert.equal(calls.some(c=>c.path.endsWith('/work/generate')||c.path.endsWith('/preview')),false);
+  await page.locator('.wg-tabs').getByRole('button',{name:'写作配置',exact:true}).click();await page.getByLabel('配置应用于',{exact:true}).waitFor();await page.setViewportSize({width:480,height:900});await page.locator('[data-global-settings] summary').first().click();
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
+  if(process.env.WG_TEST_SCREENSHOT){await page.setViewportSize({width:1280,height:1100});await page.screenshot({path:process.env.WG_TEST_SCREENSHOT});}
+  assert.equal(errors.length,0,JSON.stringify(errors));
+  console.log('writing-config: actual UI, global saves, unchanged bindings, current-session request metadata, failure/abort privacy and read-only archive passed');
+} finally {await browser?.close();await fs.rm(root,{recursive:true,force:true});}

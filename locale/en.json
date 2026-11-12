@@ -1,13 +1,13 @@
 {
   "meta": {
     "title": "Writing Guide",
-    "description": "Import and edit lorebooks and prompt presets, then inject the assembled text into DSH agent modes (writer mode by default)."
+    "description": "Write in normal DSH sessions with presets, lorebooks, character cards, writing models and extensions configured in one place."
   },
   "page": {
     "title": "Writing Guide",
     "launcher": "Writing guide",
     "collapse": "Collapse",
-    "tabInject": "Injection",
+    "tabConfig": "Writing configuration",
     "tabWorlds": "Lorebooks",
     "tabPresets": "Presets",
     "loading": "Reading writing-guide data…"

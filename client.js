@@ -220,239 +220,70 @@ window.__ModuleLoader__.load({
       return String(text ?? '').split(/[,，\n]/).map((item) => item.trim()).filter(Boolean);
     }
 
-    function Chips({ modes, selected, onChange, allowEmptyHint }) {
-      const list = Array.isArray(selected) ? selected : [];
-      const nodes = (modes ?? []).map((mode) => {
-        const on = list.includes(mode.id);
-        return h('button', {
-          key: mode.id,
-          className: 'wg-chip',
-          'data-on': String(on),
-          'data-missing': String(mode.declared === false),
-          title: mode.broken ? `加载失败：${mode.broken}` : (mode.description || `${mode.name} · ${mode.id}`),
-          onClick: () => onChange(on ? list.filter((id) => id !== mode.id) : [...list, mode.id]),
-        }, mode.declared === false ? `${mode.name} · 未声明` : mode.name);
-      });
-      if (allowEmptyHint) nodes.push(h('span', { key: '__hint', className: 'wg-hint' }, '不选 = 跟随目标模式'));
-      return h('div', { className: 'wg-chips' }, nodes);
-    }
-
-    // ------------------------------------------------------------- 注入页
-    function InjectPanel({ data, reload, notify, fail }) {
-      const [draft, setDraft] = useState(data.settings);
-      const [preview, setPreview] = useState({ mode: '', scan: '', systemText: '', depthBlocks: [], meta: null });
-      const [busy, setBusy] = useState(false);
-      const dirty = useRef(false);
-
-      useEffect(() => { if (!dirty.current) setDraft(data.settings); }, [data.settings]);
-
-      const patch = (value) => { dirty.current = true; setDraft((prev) => ({ ...prev, ...value })); };
-      const patchVars = (value) => { dirty.current = true; setDraft((prev) => ({ ...prev, vars: { ...(prev.vars ?? {}), ...value } })); };
-      const save = async () => {
+    function GlobalWritingSettings({data,reload,notify,fail}) {
+      const [changes,setChanges]=useState({}),[busy,setBusy]=useState(false);
+      const draft={...data.settings,...changes,vars:{...data.settings.vars,...changes.vars}};
+      const patch=value=>setChanges(prev=>({...prev,...value}));
+      const number=(key,label,min=0,max=1000000,hint='')=>h(Field,{key,label},[
+        h('input',{key:'input',type:'number',min,max,value:draft[key]??'',onChange:e=>patch({[key]:e.target.value===''?null:Number(e.target.value)})}),
+        hint?h('span',{key:'hint',className:'wg-hint'},hint):null,
+      ]);
+      const save=async()=>{
         setBusy(true);
-        try {
-          await call('/settings', { patch: draft });
-          dirty.current = false;
-          notify('注入设置已保存');
-          await reload();
-        } catch (error) { fail(error); } finally { setBusy(false); }
+        try{await call('/settings',{patch:changes.vars?{...changes,vars:draft.vars}:changes});await reload();setChanges({});notify('全局高级设置已保存，对所有写作会话生效');}
+        catch(error){fail(error);}finally{setBusy(false);}
       };
-      const runPreview = async () => {
-        setBusy(true);
-        try {
-          const result = await call('/preview', { mode: preview.mode, scanText: preview.scan });
-          setPreview((prev) => ({
-            ...prev,
-            systemText: result.systemText ?? '',
-            depthBlocks: result.depthBlocks ?? [],
-            meta: result.meta ?? null,
-          }));
-        } catch (error) { fail(error); } finally { setBusy(false); }
-      };
-
-      const last = data.last ?? {};
-      const modes = data.modes ?? [];
-      const presets = data.presets ?? [];
-      const vars = draft.vars ?? {};
-
-      return h(React.Fragment, null, [
-        h('div', { key: 'bar', className: 'wg-bar' }, [
-          h('label', { key: 'en' }, h('input', {
-            type: 'checkbox', checked: draft.enabled === true,
-            onChange: (event) => patch({ enabled: event.target.checked }),
-          }), ' 启用注入'),
-          h('button', { key: 'save', className: 'wg-btn wg-btn-primary', disabled: busy, onClick: save }, '保存'),
-          h('button', { key: 'rf', className: 'wg-btn', disabled: busy, onClick: () => { dirty.current = false; reload(); } }, '重新读取'),
-          h('span', { key: 'root', className: 'wg-hint' }, data.dataRoot ?? ''),
-        ]),
-
-        h('div', { key: 'targets', className: 'wg-card' }, [
-          h('h4', { key: 'h' }, '注入到哪些 DSH 模式'),
-          h(Chips, { key: 'c', modes, selected: draft.targets, onChange: (list) => patch({ targets: list }) }),
-          h('div', { key: 'd', className: 'wg-hint' },
-            `最近一次真实请求：模式 ${last.mode || '未知'} · ${last.injected ? `已注入 ${last.chars} 字（估算）` : '未注入'}`
-            + `${last.reason && last.reason !== 'ok' ? ` · ${last.reason}` : ''}`
-            + `${last.presetName ? ` · 预设 ${last.presetName}` : ''}`
-            + `${last.depthBlocks ? ` · @D ${last.depthBlocks} 块（仅并入系统段）` : ''}`),
-          last.roles ? h('div', { key: 'r', className: 'wg-hint' },
-            `条目角色：system ${last.roles.system} / user ${last.roles.user} / assistant ${last.roles.assistant}`
-            + `${last.coercedRoles ? ` · ${last.coercedRoles} 条被强制并入系统段` : ''}`) : null,
-          last.omitted?.length ? h('div', { key: 'o', className: 'wg-hint' },
-            `超预算整块省略：${last.omitted.map((item) => `${item.label}(${item.chars}字)`).join('、')}`) : null,
-          last.notes?.length ? h('div', { key: 'n', className: 'wg-hint' }, `要点：${last.notes.join('；')}`) : null,
-        ]),
-
-        h('div', { key: 'content', className: 'wg-card' }, [
-          h('h4', { key: 'h' }, '注入内容'),
-          h('div', { key: 'sw', className: 'wg-row' }, [
-            h('label', { key: 'p' }, h('input', {
-              type: 'checkbox', checked: draft.includePreset !== false,
-              onChange: (event) => patch({ includePreset: event.target.checked }),
-            }), ' 预设（按 prompt_order 组装）'),
-            h('label', { key: 'w' }, h('input', {
-              type: 'checkbox', checked: draft.includeWorlds !== false,
-              onChange: (event) => patch({ includeWorlds: event.target.checked }),
-            }), ' 世界书条目'),
+      return h('details',{className:'wg-disclosure','data-global-settings':true},[
+        h('summary',{key:'summary'},'全局高级设置'),
+        h('fieldset',{key:'body',className:'wg-disclosure-body',disabled:busy,style:{border:0,margin:0,minWidth:0}},[
+          h('div',{key:'scope',className:'wg-hint'},'以下参数影响所有写作会话，单独保存。素材、模型和作者注使用上方默认或会话配置。'),
+          ...[['includePreset','使用绑定的预设'],['includeWorlds','使用世界书（包括角色卡关联书）']].map(([key,label])=>h('label',{key,className:'wg-row'},[h('input',{type:'checkbox',checked:draft[key]!==false,onChange:e=>patch({[key]:e.target.checked})}),label])),
+          number('scanDepth','世界书扫描消息数',1,1000),
+          number('maxRecursionSteps','世界书递归轮数上限',0,100,'0 不限制轮数。'),
+          number('worldBudgetTokens','世界书预算（估算 token）',0,1000000,'0 不额外限制世界书；仍受整个请求的上下文预算约束。'),
+          number('contextWindow','全局上下文窗口（token）',0,10000000,'仅在会话配置为 0 时使用；0 使用实际写作模型容量。'),
+          number('maxTokens','全局输出上限（token）',0,10000000,'仅在会话配置为 0 时使用；0 或未设置时默认 4096。'),
+          h(Field,{key:'temperature',label:'备用温度'},[
+            h('input',{key:'input',type:'number',step:0.05,value:draft.temperature??'',onChange:e=>patch({temperature:e.target.value===''?null:Number(e.target.value)})}),
+            h('span',{key:'hint',className:'wg-hint'},'宿主请求没有指定温度时使用；留空交给模型服务。'),
           ]),
-          h(Field, { key: 'preset', label: '用哪份预设' },
-            h('select', { value: draft.presetId ?? '', onChange: (event) => patch({ presetId: event.target.value }) }, [
-              h('option', { key: '', value: '' }, '自动：第一份模式命中的预设'),
-              ...presets.map((preset) => h('option', { key: preset.id, value: preset.id }, `${preset.name}（${preset.enabled ?? 0} 条启用）`)),
-            ])),
-          h('div', { key: 'nums', className: 'wg-row' }, [
-            h('label', { key: 'd' }, '扫描最近', h('input', {
-              type: 'number', min: 1, max: 60, style: { width: '64px' },
-              value: draft.scanDepth, onChange: (event) => patch({ scanDepth: Number(event.target.value) }),
-            }), '条消息'),
-            h('label', { key: 'c' }, '上限', h('input', {
-              type: 'number', min: 200, max: 60000, step: 200, style: { width: '84px' },
-              value: draft.maxChars, onChange: (event) => patch({ maxChars: Number(event.target.value) }),
-            }), '字'),
-            h('label', { key: 'h' }, '段标题', h('input', {
-              type: 'text', style: { width: '160px' }, value: draft.header ?? '',
-              placeholder: '留空则不加',
-              onChange: (event) => patch({ header: event.target.value }),
-            })),
+          h('details',{key:'vars'},[
+            h('summary',{},'用户人设与角色字段补充'),
+            h('div',{className:'wg-hint'},'角色描述、性格、场景和示例优先使用绑定角色卡；缺失时使用这里的补充。{{char}} 来自角色卡，{{user}} 当前固定为“用户”。'),
+            ...[['persona','用户人设'],['description','补充角色描述'],['personality','补充角色性格'],['scenario','补充场景'],['examples','补充示例对话']].map(([key,label])=>h(Field,{key,label},h('textarea',{value:draft.vars[key]??'',onChange:e=>setChanges(prev=>({...prev,vars:{...prev.vars,[key]:e.target.value}}))}))),
           ]),
-          h('div', { key: 'vtip', className: 'wg-hint' },
-            '角色卡在「角色卡」页导入（JSON / PNG），其 description / personality / scenario 会通过下面的变量与预设 marker 注入；这里的手工填写会覆盖卡片值（预设里对应 marker 的位置照样生效）。'),
-          h('div', { key: 'vars1', className: 'wg-row' }, [
-            h('label', { key: 'u' }, '{{user}}', h('input', {
-              type: 'text', style: { width: '110px' }, value: vars.user ?? '',
-              onChange: (event) => patchVars({ user: event.target.value }),
-            })),
-            h('label', { key: 'c' }, '{{char}}', h('input', {
-              type: 'text', style: { width: '110px' }, value: vars.char ?? '',
-              onChange: (event) => patchVars({ char: event.target.value }),
-            })),
-            h('label', { key: 'p' }, '{{persona}}', h('input', {
-              type: 'text', style: { width: '160px' }, value: vars.persona ?? '',
-              onChange: (event) => patchVars({ persona: event.target.value }),
-            })),
-          ]),
-          h('div', { key: 'vars2', className: 'wg-row' }, [
-            h('label', { key: 'd' }, '{{description}}', h('input', {
-              type: 'text', style: { width: '200px' }, value: vars.description ?? '',
-              onChange: (event) => patchVars({ description: event.target.value }),
-            })),
-            h('label', { key: 'p' }, '{{personality}}', h('input', {
-              type: 'text', style: { width: '200px' }, value: vars.personality ?? '',
-              onChange: (event) => patchVars({ personality: event.target.value }),
-            })),
-          ]),
-          h('div', { key: 'vars3', className: 'wg-row' }, [
-            h('label', { key: 's' }, '{{scenario}}', h('input', {
-              type: 'text', style: { width: '240px' }, value: vars.scenario ?? '',
-              onChange: (event) => patchVars({ scenario: event.target.value }),
-            })),
-            h('label', { key: 'e' }, '{{examples}}', h('input', {
-              type: 'text', style: { width: '240px' }, value: vars.examples ?? '',
-              onChange: (event) => patchVars({ examples: event.target.value }),
-            })),
-          ]),
-        ]),
-
-          h('details', { key: 'adv', className: 'wg-card', style: { padding: '8px 12px' } }, [
-            h('summary', { key: 's', style: { cursor: 'pointer', fontSize: '12.5px', fontWeight: '600' } },
-              `高级：预算 / 作者注 / 递归（模型 ${(data.model?.provider || '?') + ' / ' + (data.model?.model || '?')}）`),
-            h('div', { key: 'b1', className: 'wg-row' }, [
-              h('label', { key: 'cw' }, '上下文窗口', h('input', {
-                type: 'number', min: 0, step: 512, style: { width: '96px' }, value: draft.contextWindow ?? 0,
-                onChange: (event) => patch({ contextWindow: Number(event.target.value) }),
-              })),
-              h('label', { key: 'mt' }, '输出预留', h('input', {
-                type: 'number', min: 0, step: 16, style: { width: '80px' }, value: draft.maxTokens ?? '',
-                onChange: (event) => patch({ maxTokens: Number(event.target.value) || 0 }),
-              })),
-              h('label', { key: 'tp' }, '温度', h('input', {
-                type: 'number', min: 0, max: 2, step: 0.05, style: { width: '70px' }, value: draft.temperature ?? '',
-                onChange: (event) => patch({ temperature: event.target.value === '' ? undefined : Number(event.target.value) }),
-              })),
-            ]),
-            h('div', { key: 'b2', className: 'wg-row' }, [
-              h('label', { key: 'wp' }, '世界书预算 %', h('input', {
-                type: 'number', min: 0, max: 100, style: { width: '70px' }, value: draft.worldBudgetPercent ?? 25,
-                onChange: (event) => patch({ worldBudgetPercent: Number(event.target.value) }),
-              })),
-              h('label', { key: 'wt' }, '世界书预算 token（0=按上面 %）', h('input', {
-                type: 'number', min: 0, step: 64, style: { width: '96px' }, value: draft.worldBudgetTokens ?? 0,
-                onChange: (event) => patch({ worldBudgetTokens: Number(event.target.value) }),
-              })),
-              h('label', { key: 'mr' }, '递归轮数上限（0=不限）', h('input', {
-                type: 'number', min: 0, max: 100, style: { width: '70px' }, value: draft.maxRecursionSteps ?? 0,
-                onChange: (event) => patch({ maxRecursionSteps: Number(event.target.value) }),
-              })),
-            ]),
-            h(Field, { key: 'an', label: `作者注（没有 authorsNote marker 时按 depth ${data.authorNotePlacement?.depth ?? 4} / ${data.authorNotePlacement?.role ?? 'system'} 插入）` },
-              h('textarea', {
-                style: { minHeight: '60px' },
-                value: draft.authorNote ?? '',
-                onChange: (event) => patch({ authorNote: event.target.value }),
-              })),
-            h('label', { key: 'dg', className: 'wg-row' }, h('input', {
-              type: 'checkbox', checked: draft.degradeOrder === true,
-              onChange: (event) => patch({ degradeOrder: event.target.checked }),
-            }), ' 允许顺序退化（适配器不支持 in-history 时，把历史后的 system 并到顶部唯一 system；默认关闭 = 直接拒绝生成）'),
-            h('div', { key: 'tip', className: 'wg-hint' },
-              'token 是保守估算（中文 1 字 ≈ 1.5 token），不是精确 tokenizer；超出上下文会拒绝请求而不是截断。'
-              + ' 默认 route deepseek-account 的适配器不支持 in-history，预设里有 PHI/@D(system) 时会拒绝生成；改用 pi-ai 系 route 可保真。'),
-          ]),
-
-        h('div', { key: 'preview', className: 'wg-card' }, [
-          h('h4', { key: 'h' }, '预览（不发模型请求；跳过概率抽样）'),
-          h('div', { key: 'bar', className: 'wg-row' }, [
-            h('label', { key: 'm' }, '按模式',
-              h('select', { value: preview.mode, onChange: (event) => setPreview((prev) => ({ ...prev, mode: event.target.value })) }, [
-                h('option', { key: '', value: '' }, '最近一次真实请求的模式'),
-                ...modes.map((mode) => h('option', { key: mode.id, value: mode.id }, mode.name)),
-              ])),
-            h('button', { key: 'go', className: 'wg-btn', disabled: busy, onClick: runPreview }, '生成预览'),
-          ]),
-          h('div', { key: 'ph', className: 'wg-hint' },
-            '预览把 probability<100 的条目全部视为命中（不做掷骰），所以命中数可能多于真实请求；真实命中以顶部「最近一次真实请求」为准。'),
-          h(Field, { key: 'scan', label: '扫描文本（世界书按它命中；留空只跑常驻条目）' },
-            h('textarea', {
-              value: preview.scan,
-              onChange: (event) => setPreview((prev) => ({ ...prev, scan: event.target.value })),
-              placeholder: '例如：她把湿透的伞收起来，雨声还在。',
-            })),
-          preview.meta ? h('div', { key: 'meta', className: 'wg-hint' },
-            `[预览] injected=${preview.meta.injected} · chars=${preview.meta.chars}（字符估算）`
-            + ` · preset=${preview.meta.preset || '-'} · worlds=${(preview.meta.worlds ?? []).join(',') || '-'}`
-            + ` · 命中 ${preview.meta.entries ?? 0} 条 · @D ${preview.meta.depthBlocks ?? 0} 块（不支持真注入）`
-            + ` · roles=${JSON.stringify(preview.meta.roles)} · ${preview.meta.reason || ''}`) : null,
-          preview.meta?.omitted?.length ? h('div', { key: 'omit', className: 'wg-hint' },
-            `超预算整块省略：${preview.meta.omitted.map((item) => `${item.label}(${item.chars}字, ${item.reason})`).join('；')}`) : null,
-          preview.meta?.notes?.length ? h('div', { key: 'notes', className: 'wg-hint' }, `要点：${preview.meta.notes.join('；')}`) : null,
-          preview.depthBlocks.length
-            ? h('div', { key: 'depth', className: 'wg-hint' },
-              `@D 深度块：${preview.depthBlocks.map((block) => `${block.depth}/${block.role}`).join(' · ')}（已并入系统段末尾，不是消息级注入）`)
-            : null,
-          preview.systemText ? h('pre', { key: 'out', className: 'wg-pre' }, preview.systemText)
-            : h('div', { key: 'none', className: 'wg-hint' }, '点「生成预览」看最终塞进系统提示词的文本。'),
+          h('div',{key:'save',className:'wg-bar'},[h('button',{className:'wg-btn',disabled:busy||!Object.keys(changes).length,onClick:save},'保存全局设置'),h('span',{className:'wg-hint','aria-live':'polite'},Object.keys(changes).length?'全局设置有未保存的更改':'全局设置已保存')]),
         ]),
       ]);
     }
+
+    function WritingDiagnostics({sessionId}) {
+      const [state,setState]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+      const refresh=useCallback(async()=>{
+        setBusy(true);setError('');setState(null);
+        try{setState(await call('/diagnostics?sessionId='+encodeURIComponent(sessionId)));}
+        catch{setError('暂时无法读取请求状态，请重试。');}finally{setBusy(false);}
+      },[sessionId]);
+      useEffect(()=>{if(sessionId)refresh();},[sessionId,refresh]);
+      const last=state?.last;
+      return h('section',{className:'wg-config-section','data-writing-diagnostics':true},[
+        h('h3',{key:'title'},'所选会话最近一次写作请求'),
+        !sessionId?h('div',{key:'choose',className:'wg-hint'},'在“配置应用于”中选择写作会话，查看实际发送记录；默认配置本身没有请求记录。'):h(React.Fragment,{key:'session'},[
+          h('button',{key:'refresh',className:'wg-btn',disabled:busy,onClick:refresh},busy?'正在读取…':'刷新请求状态'),
+          error?h('div',{key:'error',className:'wg-err'},error):null,
+          state&&!last?h('div',{key:'empty',className:'wg-hint'},'本次 DSH 启动后，该会话尚无写作请求记录。'):null,
+          last?h('div',{key:'status','aria-live':'polite'},[
+            h('div',{key:'phase'},'请求状态：'+({preparing:'组装中',requesting:'请求中',completed:'已完成',failed:'失败',aborted:'已取消'}[last.phase]??'未知')),
+            h('div',{key:'route'},(last.requestSent?'实际请求模型：':'配置模型（尚未发送）：')+last.writingRoute),
+            h('div',{key:'time',className:'wg-hint'},'记录时间：'+last.at),
+            last.requestSent?h('div',{key:'counts',className:'wg-hint'},'消息 '+last.messages+' 条 · system '+last.roles.system+' / user '+last.roles.user+' / assistant '+last.roles.assistant+' · 世界书 '+last.worlds+' 本 · 输出上限 '+last.outputCap+' token'):null,
+            last.errorCode?h('div',{key:'code',className:'wg-err'},'错误类别：'+last.errorCode):null,
+            h('div',{key:'hint',className:'wg-hint'},'这是该次请求的记录；修改配置后，要到下一次请求才会更新。这里只显示结构和状态。'),
+          ]):null,
+        ]),
+      ]);
+    }
+
 
     // --------------------------------------------------------- 世界书编辑
     function WorldEditor({ world, data, onClose, onSaved, fail }) {
@@ -510,21 +341,15 @@ window.__ModuleLoader__.load({
                 onChange: (event) => set({ name: event.target.value }),
               })),
             h('span', { className: 'wg-hint' }, `id: ${draft.id}`),
-            h('label', null, h('input', {
-              type: 'checkbox', checked: draft.modes?.length > 0,
-              onChange: (event) => set({ modes: event.target.checked ? (draft.modes.length ? draft.modes : ['writer']) : [] }),
-            }), ' 限定模式'),
+
           ]),
-          h(Chips, {
-            key: 'modes', modes: data.modes, selected: draft.modes, allowEmptyHint: true,
-            onChange: (list) => set({ modes: list }),
-          }),
+          h('div', { className: 'wg-hint' }, '在写作配置中选择本素材；保存编辑不会改变会话绑定。'),
         ]),
         h('div', { key: 'add', className: 'wg-bar' }, [
           h('button', { key: 'a', className: 'wg-btn', onClick: addEntry }, '+ 新增条目'),
           h('span', { key: 'h', className: 'wg-hint' },
             '位置语义与 ST 一致：↑Char / ↓Char / ↑AT / ↓AT / @D / ↑EM / ↓EM / outlet。'
-            + ' 注意 @D（depth 0 = 最后一条消息之后）在 DSH 里没有消息级注入，只会并入系统提示词末尾。'),
+            + ' 写作模式按深度和角色插入聊天历史；@D depth 0 位于最后一条消息之后。'),
         ]),
         ...draft.entries.map((entry, index) => h('div', {
           key: `${entry.uid}-${index}`,
@@ -697,15 +522,9 @@ window.__ModuleLoader__.load({
                 onChange: (event) => setDraftValue({ name: event.target.value }),
               })),
             h('span', { className: 'wg-hint' }, `id: ${draft.id}`),
-            h('label', null, h('input', {
-              type: 'checkbox', checked: draft.modes?.length > 0,
-              onChange: (event) => setDraftValue({ modes: event.target.checked ? (draft.modes.length ? draft.modes : ['writer']) : [] }),
-            }), ' 限定模式'),
+
           ]),
-          h(Chips, {
-            key: 'modes', modes: data.modes, selected: draft.modes, allowEmptyHint: true,
-            onChange: (list) => setDraftValue({ modes: list }),
-          }),
+          h('div', { className: 'wg-hint' }, '在写作配置中选择本素材；保存编辑不会改变会话绑定。'),
           h('div', { key: 'tip', className: 'wg-hint' },
             '顺序就是 ST 的 prompt_order：世界书 / 角色卡字段 / 示例对话 / 聊天记录 这些 marker 决定了它们插在哪。'),
         ]),
@@ -781,14 +600,14 @@ window.__ModuleLoader__.load({
 
     function markerHint(identifier) {
       switch (identifier) {
-        case 'worldInfoBefore': return '占位：世界书 ↑Char + ↑AT 条目在这里展开';
-        case 'worldInfoAfter': return '占位：世界书 ↓Char + ↓AT 条目在这里展开';
-        case 'charDescription': return '占位：注入页 {{description}}';
-        case 'charPersonality': return '占位：注入页 {{personality}}';
-        case 'scenario': return '占位：注入页 {{scenario}}';
-        case 'personaDescription': return '占位：注入页 {{persona}}';
-        case 'dialogueExamples': return '占位：世界书 ↑EM/↓EM + {{examples}}';
-        case 'chatHistory': return '占位：对话本身（DSH 无消息级阶段，后面的条目仍会进系统提示词）';
+        case 'worldInfoBefore': return '占位：世界书 ↑Char 条目在这里展开；↑AT 位于作者注之前';
+        case 'worldInfoAfter': return '占位：世界书 ↓Char 条目在这里展开；↓AT 位于作者注之后';
+        case 'charDescription': return '占位：当前绑定角色卡的描述（缺省时使用全局补充字段）';
+        case 'charPersonality': return '占位：当前绑定角色卡的性格（缺省时使用全局补充字段）';
+        case 'scenario': return '占位：当前绑定角色卡的场景（缺省时使用全局补充字段）';
+        case 'personaDescription': return '占位：写作配置 → 全局高级设置中的用户人设';
+        case 'dialogueExamples': return '占位：角色卡示例对话及世界书 ↑EM/↓EM；没有卡片示例时使用全局补充示例';
+        case 'chatHistory': return '占位：当前会话历史；后置条目保留在历史之后，按各自角色发送';
         default: return '占位';
       }
     }
@@ -897,16 +716,6 @@ window.__ModuleLoader__.load({
               ` · ${world.id}`,
             ].join('')),
           ]),
-          h(Chips, {
-            key: 'c', modes: data.modes, selected: world.modes, allowEmptyHint: true,
-            onChange: async (list) => {
-              try {
-                const full = await call(`/world/${encodeURIComponent(world.id)}`);
-                await call('/world/save', { world: { ...full.world, modes: list } });
-                await reload();
-              } catch (error) { fail(error); }
-            },
-          }),
           h('div', { key: 'o', className: 'wg-bar' }, [
             h('button', { key: 'e', className: 'wg-btn wg-btn-mini', onClick: () => open(world.id) }, '编辑条目'),
             h('button', { key: 'x', className: 'wg-btn wg-btn-mini', onClick: () => downloadJson(`/world/${encodeURIComponent(world.id)}/export`, `${world.id}.json`, (v) => v.world) }, '导出'),
@@ -1020,27 +829,16 @@ window.__ModuleLoader__.load({
           h('span', { key: 'n', className: 'wg-hint' }, `${data.presets.length} 份 · 吃 ST 预设（prompts + prompt_order）/ 整份 settings.json`),
         ]),
         h(SearchInput,{key:'search',query,onChange:setQuery,label:'搜索预设名称'}),
-        ...data.presets.filter(preset=>matchesSearch(preset,query)).map((preset) => h('div', { key: preset.id, className: 'wg-item', 'data-active': String(data.settings.presetId === preset.id) }, [
+        ...data.presets.filter(preset=>matchesSearch(preset,query)).map((preset) => h('div', { key: preset.id, className: 'wg-item' }, [
           h('div', { key: 'm', className: 'wg-item-main' }, [
             h('b', { key: 'b' }, preset.name),
             h('div', { key: 'd' }, [
               `${preset.enabled ?? 0}/${preset.prompts ?? 0} 条启用`,
               preset.markers?.length ? ` · marker ${preset.markers.join(' ')}` : '',
-              data.settings.presetId === preset.id ? ' · 注入中' : '',
               ` · ${preset.id}`,
             ].filter(Boolean).join('')),
           ]),
           h(MaterialExtensions,{key:'extensions',type:'preset',id:preset.id,counts:preset.extensionCounts,onOpen:onOpenExtensions}),
-          h(Chips, {
-            key: 'c', modes: data.modes, selected: preset.modes, allowEmptyHint: true,
-            onChange: async (list) => {
-              try {
-                const full = await call(`/preset/${encodeURIComponent(preset.id)}`);
-                await call('/preset/save', { preset: { ...full.preset, modes: list } });
-                await reload();
-              } catch (error) { fail(error); }
-            },
-          }),
           h('div', { key: 'o', className: 'wg-bar' }, [
             h('button', { key: 'e', className: 'wg-btn wg-btn-mini', onClick: () => open(preset.id) }, '编辑'),
             h('button', { key: 'x', className: 'wg-btn wg-btn-mini', onClick: () => downloadJson(`/preset/${encodeURIComponent(preset.id)}/export`, `${preset.id}.json`, (v) => v.preset) }, '导出'),
@@ -1106,7 +904,7 @@ window.__ModuleLoader__.load({
     }
 
     /** 写作配置：默认值与会话绑定**分开编辑**，字段改动只进 draft，点保存才发请求。 */
-    function ConfigPanel({ data, notify, fail, scopeSession, onScopeSessionChange }) {
+    function ConfigPanel({ data, reload, notify, fail, scopeSession, onScopeSessionChange }) {
       const [bindings, setBindings] = useState(null);
       const [cards, setCards] = useState([]);
       const [sessions, setSessions] = useState([]);
@@ -1208,6 +1006,7 @@ window.__ModuleLoader__.load({
           h('div',{key:'grid',className:'wg-config-grid'},[
             h('section',{key:'materials',className:'wg-config-section','aria-label':'写作素材'},[
               h('h3',{key:'heading'},'写作素材'),
+              data.settings.includePreset===false||data.settings.includeWorlds===false?h('div',{key:'paused',className:'wg-hint'},'全局设置已暂停'+[data.settings.includePreset===false?'预设':'',data.settings.includeWorlds===false?'世界书':''].filter(Boolean).join('、')+'；可在下方“全局高级设置”恢复。'):null,
               h(Field,{key:'preset',label:'预设'},h('select',{value:draft.presetId??'',disabled:saving,onChange:event=>set({presetId:event.target.value})},[
                 h('option',{key:'none',value:''},'不使用预设'),
                 ...(data.presets??[]).map(preset=>h('option',{key:preset.id,value:preset.id},preset.name||preset.id)),
@@ -1220,11 +1019,12 @@ window.__ModuleLoader__.load({
               h(Field,{key:'world-mode',label:'世界书范围'},h('select',{value:worldMode,disabled:saving,onChange:event=>set({worldSelection:event.target.value})},[
                 h('option',{key:'all',value:'all'},'全部世界书'),
                 h('option',{key:'selected',value:'selected'},'只用手动指定的'),
-                h('option',{key:'none',value:'none'},'仅使用角色卡关联书'),
+                h('option',{key:'none',value:'none'},'不选额外世界书'),
               ])),
               worldMode==='selected'?h(Field,{key:'worlds',label:'指定世界书（可多选）'},
                 h(WorldbookMultiSelect,{worlds:data.worlds??[],value:draft.worldIds??[],disabled:saving,onChange:worldIds=>set({worldSelection:'selected',worldIds})})):null,
-              h('div',{key:'world-hint',className:'wg-hint'},'角色卡关联书自动加入，重复选择只使用一次。'),
+              h('label',{key:'card-book',className:'wg-row'},[h('input',{type:'checkbox',checked:draft.useCardBook!==false,disabled:saving,onChange:event=>set({useCardBook:event.target.checked})}),' 使用角色卡关联世界书']),
+              h('div',{key:'world-hint',className:'wg-hint'},'启用关联书时自动加入并去重；全局关闭世界书后，此处选择也暂停生效。'),
             ]),
             h('div',{key:'right',className:'wg-config-column'},[
               h('section',{key:'model',className:'wg-config-section','aria-label':'生成设置'},[
@@ -1241,13 +1041,15 @@ window.__ModuleLoader__.load({
               h('details',{key:'advanced',className:'wg-disclosure','data-config-advanced':true},[
                 h('summary',{key:'summary'},'高级参数'),
                 h('div',{key:'body',className:'wg-disclosure-body'},[
+                  h('label',{key:'enabled',className:'wg-row'},[h('input',{type:'checkbox',checked:draft.enabled!==false,disabled:saving,onChange:event=>set({enabled:event.target.checked})}),' 此配置启用写作接管']),
+                  h('span',{key:'enabled-hint',className:'wg-hint'},'关闭后使用宿主模型；顶部总开关对所有会话生效。'),
                   h(Field,{key:'context',label:'上下文窗口（token）'},[
                     h('input',{key:'input',type:'number',min:0,step:1024,value:draft.contextWindow??0,disabled:saving,onChange:event=>set({contextWindow:Number(event.target.value)||0})}),
                     h('span',{key:'hint',className:'wg-hint'},'0 沿用全局设置或模型提供的上下文容量。'),
                   ]),
                   h(Field,{key:'note',label:'作者注'},[
                     h('textarea',{key:'input',value:draft.authorNote??'',disabled:saving,placeholder:'补充叙事视角、文风或本轮写作要求',onChange:event=>set({authorNote:event.target.value})}),
-                    h('span',{key:'hint',className:'wg-hint'},'用于补充写作要求，按预设位置注入。'),
+                    h('span',{key:'hint',className:'wg-hint'},'按 authorsNote 标记插入；没有标记时按深度 4 / system 插入。留空表示不添加。'),
                   ]),
                 ]),
               ]),
@@ -1260,6 +1062,8 @@ window.__ModuleLoader__.load({
               ]):null,
             ]),
           ]),
+          h(WritingDiagnostics,{key:'diagnostics:'+target,sessionId:target}),
+          h(GlobalWritingSettings,{key:'global',data,reload,notify,fail}),
           h('details',{key:'help',className:'wg-config-help'},[
             h('summary',{key:'summary'},'如何开始写作'),
             h('p',{key:'body',className:'wg-hint'},'保存配置后，新建 DSH 会话并选择“写作模式”，直接在聊天输入框中发送写作要求。需要为不同会话使用不同素材时，在上方切换配置目标。'),
@@ -1522,205 +1326,27 @@ window.__ModuleLoader__.load({
       ]);
     }
 
-    function WorksPanel({ data, reload, notify, fail }) {
-      const [query,setQuery]=useState('');
-      const [creating, setCreating] = useState(false);
-      const [works, setWorks] = useState([]);
-      const [current, setCurrent] = useState(null);
-      const [chat, setChat] = useState([]);
-      const [message, setMessage] = useState('');
-      const [busy, setBusy] = useState(false);
-      const [reply, setReply] = useState('');
-
-      const refreshWorks = useCallback(async () => {
-        try {
-          const result = await call('/work/list');
-          setWorks(result.works ?? []);
-        } catch (error) { fail(error); }
-      }, [fail]);
-      useEffect(() => { refreshWorks(); }, [refreshWorks]);
-
-      const open = async (id) => {
-        try {
-          const result = await call(`/work/${encodeURIComponent(id)}`);
-          setCurrent(result.work);
-          setChat(result.chat ?? []);
-          setReply('');
-        } catch (error) { fail(error); }
+    function WorksPanel({ fail }) {
+      const [query,setQuery]=useState(''),[works,setWorks]=useState([]),[current,setCurrent]=useState(null);
+      const refresh=useCallback(async()=>{try{const value=await call('/work/list');setWorks(value.works??[]);}catch(error){fail(error);}},[fail]);
+      useEffect(()=>{refresh();},[refresh]);
+      const open=async id=>{try{setCurrent(await call('/work/'+encodeURIComponent(id)));}catch(error){fail(error);}};
+      const exportWork=()=>{
+        const url=URL.createObjectURL(new Blob([JSON.stringify(current,null,2)],{type:'application/json'}));
+        const anchor=document.createElement('a');anchor.href=url;anchor.download=current.work.id+'.json';anchor.click();URL.revokeObjectURL(url);
       };
-      const create = async (title) => {
-        try {
-          const result = await call('/work/save', {
-            work: { title, presetId: data.settings.presetId, worldIds: [], authorNote: '' },
-          });
-          await refreshWorks();
-          await open(result.work.id);
-          setCreating(false);
-          notify('已创建作品');
-        } catch (error) { fail(error); }
-      };
-      const saveCurrent = async (patchValue) => {
-        if (!current) return;
-        try {
-          const result = await call('/work/save', { work: { ...current, ...patchValue } });
-          setCurrent(result.work);
-          await refreshWorks();
-          notify('作品已保存');
-        } catch (error) { fail(error); }
-      };
-      const remove = async (work) => {
-        if (!window.confirm(`删除作品「${work.title}」？`)) return;
-        try {
-          await call('/work/delete', { id: work.id });
-          if (current?.id === work.id) { setCurrent(null); setChat([]); }
-          await refreshWorks();
-          notify('已删除');
-        } catch (error) { fail(error); }
-      };
-      const generate = async () => {
-        if (!current || !message.trim()) return;
-        setBusy(true);
-        setReply('');
-        try {
-          const result = await call('/work/generate', { workId: current.id, message });
-          if (!result.ok) {
-            fail(new Error(result.detail || '生成未完成（正文未保存）'));
-            return;
-          }
-          setReply(result.text);
-          setMessage('');
-          const fresh = await call(`/work/${encodeURIComponent(current.id)}`);
-          setChat(fresh.chat ?? []);
-          notify(`生成完成：${result.detail}`);
-        } catch (error) { fail(error); } finally { setBusy(false); }
-      };
-      const exportWork = async () => {
-        if (!current) return;
-        try {
-          const result = await call(`/work/${encodeURIComponent(current.id)}`);
-          const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const anchor = document.createElement('a');
-          anchor.href = url;
-          anchor.download = `${current.id}.json`;
-          anchor.click();
-          URL.revokeObjectURL(url);
-        } catch (error) { fail(error); }
-      };
-
-      const presets = data.presets ?? [];
-      const worlds = data.worlds ?? [];
-
-      return h(React.Fragment, null, [
-        h('div', { key: 'bar', className: 'wg-bar' }, [
-          h('button', { key: 'new', className: 'wg-btn', onClick: () => setCreating((v) => !v) }, '+ 新建作品'),
-          creating ? h(NewNameRow, {
-            key: 'newrow', label: '作品名称', placeholder: '例如：雨城故事',
-            busy: false, onCreate: create, onCancel: () => setCreating(false),
-          }) : null,
-          h('button', { key: 'rf', className: 'wg-btn', onClick: refreshWorks }, '刷新'),
-          h('span', { key: 'n', className: 'wg-hint' }, `${works.length} 个作品 · 生成走本插件自己的请求通道（不经 DSH 会话历史）`),
-        ]),
+      return h(React.Fragment,null,[
+        h('div',{key:'bar',className:'wg-bar'},[h('button',{className:'wg-btn',onClick:refresh},'刷新'),h('span',{className:'wg-hint'},works.length+' 个旧版作品 · 只读归档；请在 DSH 写作模式会话中创作。')]),
         h(SearchInput,{key:'search',query,onChange:setQuery,label:'搜索旧版作品'}),
-        ...works.filter(work=>matchesSearch(work,query)).map((work) => h('div', {
-          key: work.id,
-          className: 'wg-item',
-          'data-active': String(current?.id === work.id),
-        }, [
-          h('div', { key: 'm', className: 'wg-item-main' }, [
-            h('b', { key: 'b' }, work.title),
-            h('div', { key: 'd' }, `${work.messages ?? 0} 条 · 预设 ${work.presetId || '未指定'} · 世界书 ${(work.worldIds ?? []).length || '全部'} · ${work.id}`),
-          ]),
-          h('div', { key: 'o', className: 'wg-bar' }, [
-            h('button', { key: 'open', className: 'wg-btn wg-btn-mini', onClick: () => open(work.id) }, '打开'),
-            h('button', { key: 'del', className: 'wg-btn wg-btn-mini', onClick: () => remove(work) }, '删除'),
-          ]),
+        ...works.filter(work=>matchesSearch(work,query)).map(work=>h('div',{key:work.id,className:'wg-item'},[
+          h('div',{className:'wg-item-main'},[h('b',{},work.title),h('div',{},(work.messages??0)+' 条')]),
+          h('button',{className:'wg-btn',onClick:()=>open(work.id)},'查看'),
         ])),
-        works.length === 0 ? h('div', { key: 'empty', className: 'wg-empty' }, '还没有作品。新建一个，绑定预设与世界书后就能生成。') : null,
-
-        current ? h('div', { key: 'editor', className: 'wg-card' }, [
-          h('h4', { key: 'h' }, `作品：${current.title}`),
-          h('div', { key: 'row', className: 'wg-row' }, [
-            h('label', null, '预设',
-              h('select', {
-                value: current.presetId ?? '',
-                onChange: (event) => saveCurrent({ presetId: event.target.value }),
-              }, [h('option', { key: '', value: '' }, '（不注入预设）')].concat(
-                presets.map((preset) => h('option', { key: preset.id, value: preset.id }, preset.name)),
-              ))),
-            h('button', { key: 'exp', className: 'wg-btn wg-btn-mini', onClick: exportWork }, '导出 JSON'),
-          ]),
-          h('div', { key: 'routeRow', className: 'wg-row' }, [
-            h('label', { key: 'l' }, '本作品 route',
-              h('select', {
-                key: 's',
-                value: current.route
-                  ? (current.route.transport === 'chat'
-                    ? `chat:${current.route.provider}/${current.route.model}`
-                    : `${current.route.provider}/${current.route.model}`)
-                  : '',
-                onChange: (event) => {
-                  const value = event.target.value;
-                  if (!value) return saveCurrent({ route: null });
-                  if (value.startsWith('chat:')) {
-                    const [provider, ...rest] = value.slice(5).split('/');
-                    return saveCurrent({ route: { provider, model: rest.join('/'), transport: 'chat' } });
-                  }
-                  const [provider, ...rest] = value.split('/');
-                  return saveCurrent({ route: { provider, model: rest.join('/'), transport: 'llm' } });
-                },
-              }, [h('option', { key: '', value: '' }, '跟随全局默认模型')].concat(
-                [h('option', { key: 'chat-catiecli', value: 'chat:catiecli/vtx-gemini-4-argon' },
-                  '兼容 Chat 接口（catiecli，保留角色与顺序 · 已实测）')],
-                (data.routes ?? []).filter((route) => route.provider !== 'catiecli').map((route) => h('option', {
-                  key: `${route.provider}/${route.model}`,
-                  value: `${route.provider}/${route.model}`,
-                }, `${route.provider} / ${route.model}（宿主通道）`)),
-              ))),
-            h('span', { key: 'h', className: 'wg-hint' }, '通道说明：选「兼容 Chat 接口」时按严格角色顺序发送（保留 @D/PHI 的 system 位置）；选宿主通道时由宿主适配器决定，可能合并 system。'),
-          ]),
-          h('div', { key: 'wl', className: 'wg-hint' }, '世界书（不选 = 使用全部世界书；普通 DSH 会话里这些条目只按系统段近似注入）'),
-          h('div', { key: 'chips', className: 'wg-chips' }, worlds.map((world) => {
-            const on = (current.worldIds ?? []).includes(world.id);
-            return h('button', {
-              key: world.id,
-              className: 'wg-chip',
-              'data-on': String(on),
-              onClick: () => saveCurrent({
-                worldIds: on
-                  ? (current.worldIds ?? []).filter((id) => id !== world.id)
-                  : [...(current.worldIds ?? []), world.id],
-              }),
-            }, world.name);
-          })),
-          h(Field, { key: 'an', label: '作者注（没有 authorsNote marker 时按 depth 4 / system 插入）' },
-            h('textarea', {
-              value: current.authorNote ?? '',
-              onChange: (event) => setCurrent({ ...current, authorNote: event.target.value }),
-              onBlur: () => saveCurrent({ authorNote: current.authorNote ?? '' }),
-            })),
-          h('div', { key: 'legacy', className: 'wg-hint' },
-            '旧版数据：这些作品是插件早期的独立生成记录，只读与导出；写作请到 DSH 新建会话并选「写作模式」。'),
-          h('div', { key: 'say', className: 'wg-row', style: { display: 'none' } }, [
-            h('input', {
-              key: 'msg', type: 'text', style: { flex: '1 1 320px' }, value: message,
-              placeholder: '这一轮写什么…（Enter 生成）',
-              onChange: (event) => setMessage(event.target.value),
-              onKeyDown: (event) => { if (event.key === 'Enter' && !busy) generate(); },
-            }),
-            h('button', { key: 'go', className: 'wg-btn wg-btn-primary', disabled: busy, onClick: generate }, busy ? '生成中…' : '生成'),
-          ]),
-          reply ? h('pre', { key: 'reply', className: 'wg-pre' }, reply) : null,
-          chat.length ? h('details', { key: 'hist', className: 'wg-card' }, [
-            h('summary', { key: 's', style: { cursor: 'pointer', fontSize: '12.5px', fontWeight: '600' } },
-              `作品历史 ${chat.length} 条（点开看已保存的正文）`),
-            ...chat.map((row, index) => h('div', { key: `h${index}`, className: 'wg-entry' }, [
-              h('div', { key: 'head', className: 'wg-hint' },
-                `${row.role === 'user' ? '我' : '模型'}${row.time ? ` · ${String(row.time).replace('T', ' ').slice(0, 19)}` : ''}`),
-              h('div', { key: 'body', className: 'wg-hint', style: { whiteSpace: 'pre-wrap' } }, String(row.content ?? '')),
-            ])),
-          ]) : null,
-        ]) : null,
+        !works.length?h('div',{key:'empty',className:'wg-empty'},'没有旧版作品。请在 DSH 写作模式会话中开始写作。'):null,
+        current?h('div',{key:'archive',className:'wg-card'},[
+          h('h4',{},current.work.title),h('button',{className:'wg-btn',onClick:exportWork},'导出作品 JSON'),
+          ...(current.chat??[]).map((row,index)=>h('div',{key:index,className:'wg-entry'},[h('div',{className:'wg-hint'},row.role==='user'?'我':'模型'),h('div',{style:{whiteSpace:'pre-wrap'}},String(row.content??''))])),
+        ]):null,
       ]);
     }
 
@@ -1761,7 +1387,6 @@ window.__ModuleLoader__.load({
             ['config', '写作配置'],
             ['cards', '角色卡'],
             ['ext', '扩展'],
-            ['inject', '注入'],
             ['worlds', '世界书'],
             ['presets', '预设'],
             ['works', '旧版作品'],
@@ -1774,8 +1399,8 @@ window.__ModuleLoader__.load({
         ]),
         h('div', { key: 'body', className: 'wg-body'+(tab==='config'?' wg-body-config':'') }, [
           tab!=='config'?h('header',{key:'page-heading',className:'wg-page-heading'},[
-            h('h2',{key:'title'},({cards:'角色卡',ext:'扩展',inject:'注入设置',worlds:'世界书',presets:'预设',works:'旧版作品'})[tab]),
-            h('p',{key:'description'},({cards:'管理角色设定与开场白，关联世界书随卡片保存。',ext:'按来源管理正则、模板与助手，设置只影响对应素材。',inject:'管理提示词的注入规则，并用预览核对效果。',worlds:'管理世界设定与关键词条目，在写作配置中选择要使用的书。',presets:'管理提示词顺序、角色和 SPreset 扩展配置。',works:'查看与导出旧版作品。新的创作建议使用正常写作会话。'})[tab]),
+            h('h2',{key:'title'},({cards:'角色卡',ext:'扩展',worlds:'世界书',presets:'预设',works:'旧版作品'})[tab]),
+            h('p',{key:'description'},({cards:'管理角色设定与开场白，关联世界书随卡片保存。',ext:'按来源管理正则、模板与助手，设置只影响对应素材。',worlds:'管理世界设定与关键词条目，在写作配置中选择要使用的书。',presets:'管理提示词顺序、角色和 SPreset 扩展配置。',works:'查看与导出旧版作品。新的创作建议使用正常写作会话。'})[tab]),
           ]):null,
           message ? h('div', { key: 'ok', className: 'wg-ok' }, message) : null,
           error ? h('div', { key: 'err', className: 'wg-err' }, error) : null,
@@ -1789,9 +1414,7 @@ window.__ModuleLoader__.load({
                   + ' 直接在这里编辑会用旧接口写坏新结构的数据，所以先锁住了。'),
                 h('div', { key: 'c', className: 'wg-hint' }, '重启 DSH 后刷新页面即可恢复。'),
               ])
-              : tab === 'inject'
-                ? h(InjectPanel, { key: 'inject', data, reload, notify, fail })
-                : tab === 'worlds'
+              : tab === 'worlds'
                   ? h(WorldsPanel, { key: 'worlds', data, reload, notify, fail })
                   : tab === 'presets'
                   ? h(PresetsPanel, { key: 'presets', data, reload, notify, fail,onOpenExtensions:openExtensions })
@@ -1852,7 +1475,7 @@ window.__ModuleLoader__.load({
       if(preset!=='writer')return null;
       const buttonStyle={font:'inherit',border:'1px solid var(--dsw-alias-border-primary, #d7d4cf)',borderRadius:8,padding:'3px 9px',background:'var(--dsw-alias-bg-layer-2, #f4f2ee)',color:'inherit',cursor:'pointer'};
       const content=state?.writer?[
-        h('span',{key:'model',title:state.provider},'写作模型：'+(state.model||'尚未配置')),
+        h('span',{key:'model',title:state.provider},state.writingEnabled===false?'写作接管已停用 · 使用宿主模型':'写作模型：'+(state.model||'尚未配置')),
         state.residentEnabled?h('span',{key:'status'},state.busy?'· 运行中':state.active?'· 扩展已就绪':'· 扩展待启动'):null,
         state.residentEnabled&&!state.active?h('button',{key:'activate',type:'button',style:buttonStyle,disabled:busy||state.busy,onClick:()=>act({action:'activate'})},'启动扩展'):null,
         ...(state.buttons??[]).map(button=>h('button',{key:button.scriptId+'|'+button.name,type:'button',style:buttonStyle,title:button.scriptName,disabled:busy||state.busy,onClick:()=>act({action:'button',scriptId:button.scriptId,name:button.name})},button.name)),

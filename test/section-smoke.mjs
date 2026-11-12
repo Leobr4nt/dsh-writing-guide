@@ -38,7 +38,7 @@ await store.saveWorld(normalizeWorld({
     { uid: 2, comment: '@D', key: [], constant: true, position: 4, depth: 4, content: '深度条目。' },
   ],
 }));
-await store.saveSettings({ enabled: true, targets: ['writer'] });
+await store.saveSettings({ enabled: true, targets: ['writer', 'legacy-writer'] });
 
 const sections = [];
 const removals = [];
@@ -73,13 +73,15 @@ const context = (preset, messages = []) => ({
 });
 const messages = [{ type: 'user/message', data: { role: 'user', content: '下雨了。' } }];
 
-const hit = sections[0].text(context('writer', messages));
+assert.equal(sections[0].text(context('writer', messages)), '', 'writer never falls back to hidden legacy injection');
+assert.match(controller.state().reason, /会话接管/);
+const hit = sections[0].text(context('legacy-writer', messages));
 assert.match(hit, /按预设写。/);
 assert.match(hit, /常年有雨。/);
 assert.match(hit, /深度条目。/, '@D 并入系统提示词');
 assert.ok(hit.indexOf('别复述。') < hit.indexOf('深度条目。'), 'PHI 在 @D 之前');
 assert.equal(controller.state().injected, true);
-assert.equal(controller.state().mode, 'writer');
+assert.equal(controller.state().mode, 'legacy-writer');
 assert.equal(controller.state().depthBlocks, 1);
 
 assert.equal(sections[0].text(context('standard', messages)), '', '其它模式为空');
@@ -87,7 +89,7 @@ assert.match(controller.state().reason, /不在注入目标/);
 assert.equal(sections[0].text({}), '');
 
 await store.saveSettings({ enabled: false });
-assert.equal(sections[0].text(context('writer', messages)), '');
+assert.equal(sections[0].text(context('legacy-writer', messages)), '');
 assert.equal(controller.state().reason, '未启用');
 
 controller.dispose();

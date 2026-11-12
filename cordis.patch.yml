@@ -6,8 +6,8 @@
         seedSamples: true
         enableTool: true
 
-# 作家模式：标准模式的组合 + 一段写作向 persona，作为写作指导注入的默认落点。
-# 注入内容本身由 writing-guide 的 prompt section 按模式 id 决定，这段组合只负责「有这么个模式」。
+# 写作模式：标准模式组合与写作 persona；正常会话由 session hook 按写作配置接管。
+# 此组合声明模式入口，prompt section 仅保留旧系统段兼容路径。
 - insert:
     - id: preset-writer
       name: '@deepseek-ai/dsh-agent-preset'

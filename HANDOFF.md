@@ -1,6 +1,6 @@
 # 交接：DSH 写作模式 / SillyTavern 兼容插件
 
-更新时间：2026-11-12。当前版本：0.5.11（常驻运行器仍有兼容边界）。下文旧开发机记录按历史保留，最新进度见文末及 KNOWN_ISSUES.md。
+更新时间：2026-11-12。当前版本：0.5.12（常驻运行器仍有兼容边界）。下文旧开发机记录按历史保留，最新进度见文末及 KNOWN_ISSUES.md。
 
 > 接手先读本文，再看 README.md。不要把模块加载成功、无异常返回或单元测试通过，写成“完整酒馆兼容”。
 
@@ -264,3 +264,13 @@ QuickJS 提供三个读取别名与 local/message setter 薄别名，Lodash rand
 固定套装只做程序内结构验证，使用临时合成名字覆盖绑定副本，不保存：23条模板、最终发送边界出现正确人称指令、名字出现23次、遗留user标记0、素材及状态哈希不变、真实模型请求0。不要在未设置真实名字时擅自从私人正文猜名字；默认仍“用户”。完整Persona管理和群聊不在本轮范围，旧正文不会回写。
 
 最终完整测试51文件、0失败；新增user-name含7项，覆盖真实本机HTTP与常驻浏览器、A/B/A会话/重命名隔离、默认回退、特殊字符、scope与模板预览、SPreset和源数据保留。固定套装常驻验收corePassed=true，9模块/2书/MVU更新/23模板通过；原有NETWORK_BLOCKED与MISSING_API各1仍保留，不宣称全部脚本兼容。安装须正常退出DSH后替换，并提醒用户在写作配置中填写实际名字再生成。
+
+## 0.5.12 折叠区应在最终界面可点击（2026-11-12）
+
+用户要求fold draft/writing_covenant，已向本机预设添加仅markdownOnly规则；但规则生成的details被实际美化脚本二次重排为p，之前静态DOM验证不足。reading-folds.js仅抽取明确带data-writing-fold且由Parser确认显式闭合的顶层details；占位token不执行原脚本中的内容，snapshotReadingDom只在投影克隆中恢复已净化HTML，源DOM保持token供再次渲染。只删除实际参与token匹配的字符，不用跨节点Range删除无关内容；split可匹配、duplicate只恢复一次、missing/hidden将内容保存在尾部fold，fallback覆盖源CSS隐藏样式。
+
+ReadingFrame不转发本地fold的click/key事件，native toggle调整高度并保存当前组件map；刷新/resize保持，同会话不同message/part或内容变更重置。保护子树均为静态阅读，普通未保护details/控件继续原桥接。合成reading-folds-client运行真正React组件和ReadingRuntime，包含原文textContent重排、鼠标/键盘、刷新、重新排版、窄屏、消息隔离、未闭合外层、split中间pre保留、脚本净化及fallback可见性。
+
+真实回复仅检查结构/状态：美化段4个fold在最终iframe仍为4个；连同外部静态段共6个fold均默认关闭、点击打开、再次点击收起，uiErrors=0。未输出正文/私有脚本/变量，无模型请求。本机预设的两条规则与备份属于私人数据，不提交；程序版本升级需退出DSH后安装。
+
+完整测试52文件、0失败；最后的跨节点保留与fallback可见性修正后再次运行reading-folds-client并复核真实最终组件，均通过。不要再以readingHtml静态节点数量代替最终美化脚本后的交互验证。

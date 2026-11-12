@@ -1527,6 +1527,7 @@ window.__ModuleLoader__.load({
     function ReadingFrame({row,sessionId}){
       const wrapper=useRef(null),frame=useRef(null),surfaceRef=useRef(null),generation=useRef(0),queue=useRef(Promise.resolve()),actRef=useRef(null),focusRef=useRef(null),loadRef=useRef(null);
       const edits=useRef(new Map()),timers=useRef(new Map()),editSerial=useRef(0);
+      const localFolds=useRef(new Map());
       const [surface,setSurface]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
       const load=useCallback(async()=>{
         const current=++generation.current;setBusy(true);setError('');
@@ -1535,7 +1536,7 @@ window.__ModuleLoader__.load({
         finally{if(generation.current===current)setBusy(false);}
       },[sessionId,row.id,row.html,row.head]);
       loadRef.current=load;
-      useEffect(()=>{surfaceRef.current=null;setSurface(null);edits.current.clear();for(const timer of timers.current.values())clearTimeout(timer);timers.current.clear();if(row.interactive)void load();return()=>{generation.current++;for(const timer of timers.current.values())clearTimeout(timer);timers.current.clear();};},[row.interactive,load]);
+      useEffect(()=>{surfaceRef.current=null;setSurface(null);edits.current.clear();localFolds.current.clear();for(const timer of timers.current.values())clearTimeout(timer);timers.current.clear();if(row.interactive)void load();return()=>{generation.current++;for(const timer of timers.current.values())clearTimeout(timer);timers.current.clear();};},[row.interactive,load]);
       actRef.current=input=>{
         const current=generation.current;
         const execute=async()=>{
@@ -1564,6 +1565,7 @@ window.__ModuleLoader__.load({
           const click=event=>{
             if(!row.interactive||event.button!==0)return;
             const target=event.target.nodeType===1?event.target:event.target.parentElement;
+            if(target?.closest('[data-reading-local-fold]'))return;
             if(!target||target.closest('input,select,textarea,label'))return;
             if(document.getSelection()?.toString())return;
             const control=target.closest('[data-reading-node]');if(!control)return;
@@ -1582,12 +1584,15 @@ window.__ModuleLoader__.load({
           const changed=event=>change(event,true);
           const inputted=event=>{if(!['checkbox','radio'].includes(event.target.type))change(event,false);};
           const key=event=>{
+            if(event.target?.closest('[data-reading-local-fold]'))return;
             if(!row.interactive||event.key!=='Enter'||event.target?.tagName==='TEXTAREA'||!event.target?.dataset?.readingNode)return;
             event.preventDefault();change(event);actRef.current?.({type:'node-key',nodeId:event.target.dataset.readingNode,key:'Enter'});
           };
           const blockSubmit=event=>event.preventDefault();
-          document.addEventListener('click',click);document.addEventListener('change',changed);document.addEventListener('input',inputted);document.addEventListener('keydown',key);document.addEventListener('submit',blockSubmit);document.addEventListener('toggle',resize,true);document.addEventListener('load',resize,true);
-          cleanDocument=()=>{document.removeEventListener('click',click);document.removeEventListener('change',changed);document.removeEventListener('input',inputted);document.removeEventListener('keydown',key);document.removeEventListener('submit',blockSubmit);document.removeEventListener('toggle',resize,true);document.removeEventListener('load',resize,true);};
+          const toggled=event=>{const id=event.target?.dataset?.readingLocalFold;if(id)localFolds.current.set(id,event.target.open);resize();};
+          for(const details of document.querySelectorAll('details[data-reading-local-fold]')){const value=localFolds.current.get(details.dataset.readingLocalFold);if(value!==undefined)details.open=value;}
+          document.addEventListener('click',click);document.addEventListener('change',changed);document.addEventListener('input',inputted);document.addEventListener('keydown',key);document.addEventListener('submit',blockSubmit);document.addEventListener('toggle',toggled,true);document.addEventListener('load',resize,true);
+          cleanDocument=()=>{document.removeEventListener('click',click);document.removeEventListener('change',changed);document.removeEventListener('input',inputted);document.removeEventListener('keydown',key);document.removeEventListener('submit',blockSubmit);document.removeEventListener('toggle',toggled,true);document.removeEventListener('load',resize,true);};
           for(const [id,pending]of edits.current){const el=document.querySelector('[data-reading-node="'+id+'"]');if(!el)continue;if(pending.values)for(const option of el.options)option.selected=pending.values.includes(option.value);else if(typeof pending.checked==='boolean')el.checked=pending.checked;else el.value=pending.value;}
           const focus=focusRef.current;if(focus?.id){const el=document.querySelector('[data-reading-node="'+focus.id+'"]');if(el){el.focus({preventScroll:true});try{if(focus.start!=null)el.setSelectionRange(focus.start,focus.end);}catch{}}}
           observer=new ResizeObserver(resize);observer.observe(document.body);mutation=new MutationObserver(resize);mutation.observe(document.body,{subtree:true,childList:true,attributes:true,characterData:true});resize();

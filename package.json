@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-writing-guide",
-  "version": "0.5.9",
+  "version": "0.5.10",
   "private": true,
   "type": "module",
   "description": "为 DeepSeek Harness 增加写作模式，在正常会话中应用预设、世界书和角色卡。",
@@ -51,6 +51,7 @@
     "playwright-core": "1.58.2",
     "quickjs-emscripten-core": "0.32.0",
     "sanitize-html": "2.18.1",
+    "undici": "7.30.2",
     "vue": "3.5.45",
     "yaml": "2.9.1",
     "zod": "4.6.7"

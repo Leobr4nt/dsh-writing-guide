@@ -20,7 +20,7 @@ const record={
 const recordBefore=structuredClone(record);
 assert.deepEqual(writingDiagnostic(record),{
   at:record.at,phase:'failed',requestSent:true,writingRoute:'fixture/model',messages:5,
-  roles:{system:1,user:1,assistant:1},worlds:2,outputCap:128,errorCode:'WRITING_GUIDE_FAILED',
+  roles:{system:1,user:1,assistant:1},worlds:2,outputCap:128,requestTimeoutSeconds:600,errorCode:'WRITING_GUIDE_FAILED',
 });
 assert.equal(writingDiagnostic({...record,error:{code:'ABORTED',message:privateText}}).errorCode,'ABORTED');
 assert.equal(writingDiagnostic({...record,error:null}).errorCode,null);
@@ -36,7 +36,7 @@ const binding={
 const bindingBefore=structuredClone(binding);
 assert.deepEqual(writingBindingSummary(binding),{
   presetId:'fixture-preset',cardId:'',worldIds:[],provider:'fixture',model:'model',maxTokens:128,
-  contextWindow:0,worldSelection:'none',useCardBook:false,enabled:true,hasAuthorNote:true,
+  contextWindow:0,worldSelection:'none',useCardBook:false,enabled:true,requestTimeoutSeconds:600,hasAuthorNote:true,
 });
 assert.equal(writingBindingSummary({...binding,authorNote:''}).hasAuthorNote,false);
 assert.equal(writingBindingSummary(null),null);

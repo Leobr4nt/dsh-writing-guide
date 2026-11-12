@@ -39,7 +39,11 @@ try{
   await page.locator('.wg-tabs').getByRole('button',{name:'扩展',exact:true}).click();await page.getByRole('button',{name:'酒馆助手',exact:true}).click();
   const editor=page.locator('[data-extension-editor]'),code=editor.getByLabel('脚本内容',{exact:true});
   const owner=()=>page.locator('[data-extension-owner]').first().locator('..');
-  const edit=async name=>{await owner().locator('.wg-bar').filter({has:page.getByText(name,{exact:true})}).getByRole('button',{name:'编辑',exact:true}).click();};
+  const edit=async name=>{
+    await owner().locator('.wg-bar').filter({has:page.getByText(name,{exact:true})}).getByRole('button',{name:'编辑',exact:true}).click();
+    // Opening finishes with an animation-frame autofocus; wait before typing elsewhere.
+    await page.waitForFunction(()=>document.activeElement?.getAttribute('data-helper-name')==='true');
+  };
   const save=async()=>{await Promise.all([page.waitForResponse(r=>r.url().includes('/extensions/scope/')&&r.request().method()==='POST'&&r.status()===200),editor.getByRole('button',{name:'保存到所属素材',exact:true}).click()]);await editor.getByRole('button',{name:'取消编辑',exact:true}).waitFor({state:'detached'});};
   await edit('Global fixture');
   assert.equal(await code.isVisible(),true,'click Edit must immediately expose a script code field');

@@ -199,7 +199,7 @@ export function apply(ctx, config = {}) {
 
   const workStore = new WorkStore(store.root);
   /** 薄 Chat Completions transport：只服务作品显式选择的 chat route。 */
-  const chatTransport = async ({ route, plan, maxTokens, temperature, signal, onRequest }) => {
+  const chatTransport = async ({ route, plan, maxTokens, temperature, signal, onRequest, timeoutMs }) => {
     const config = await resolveChatRoute({
       settings: service('settings'),
       provider: route.provider,
@@ -222,7 +222,7 @@ export function apply(ctx, config = {}) {
       const available=plan.meta?.budget?.available;
       const cost=estimateTokens(JSON.stringify(body.messages))+estimateTokens(JSON.stringify(body.tools??[]));
       if(available>0&&cost>available)throw Error('SPRESET_CONTEXT_LIMIT');
-      const result=await postChatCompletion({baseURL:config.baseURL,apiKey,body,signal,onRequest});
+      const result=await postChatCompletion({baseURL:config.baseURL,apiKey,body,signal,onRequest,timeoutMs});
       if(result.usage){combinedUsage??={inputTokens:0,outputTokens:0,totalTokens:0};for(const key of Object.keys(combinedUsage))combinedUsage[key]+=Number(result.usage[key]??0);result.usage={...combinedUsage};}
       if(result.finish!=='tool_calls'){
         if(result.ok)result.content=await spresetOutput(plan.spreset?.config,result.content,{signal});

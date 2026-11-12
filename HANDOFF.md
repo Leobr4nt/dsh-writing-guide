@@ -1,6 +1,6 @@
 # 交接：DSH 写作模式 / SillyTavern 兼容插件
 
-更新时间：2026-11-12。当前版本：0.5.9（常驻运行器仍有兼容边界）。下文旧开发机记录按历史保留，最新进度见文末及 KNOWN_ISSUES.md。
+更新时间：2026-11-12。当前版本：0.5.10（常驻运行器仍有兼容边界）。下文旧开发机记录按历史保留，最新进度见文末及 KNOWN_ISSUES.md。
 
 > 接手先读本文，再看 README.md。不要把模块加载成功、无异常返回或单元测试通过，写成“完整酒馆兼容”。
 
@@ -246,3 +246,11 @@ QuickJS 提供三个读取别名与 local/message setter 薄别名，Lodash rand
 新增完整 React+真实临时路由 helper-editor 回归。旧 client.js 在“点击编辑必须显示代码输入框”断言失败；新版本覆盖全局、预设、嵌套角色卡、文件夹、新建、取消、非法 JSON、导入取消、正则表单、480px，确保不改绑定、不启用/执行脚本。本轮不查看私人脚本和变量，也不运行套装脚本；生产后端和写作流水线未改。
 
 本轮按前端变更范围运行 helper-editor、material-extension-links、writing-config、client-api，四项通过；client.js 语法检查和 git diff --check 通过，480px 合成页面截图已核对。未重跑全量模型/常驻运行测试。部署后需重新加载 DSH 前端才能使用新编辑表单。
+
+## 0.5.10 请求超时设置（2026-11-12）
+
+用户希望慢模型超过原180秒仍能等待。新增 binding.requestTimeoutSeconds，DEFAULT_REQUEST_TIMEOUT_SECONDS=600，normalizeRequestTimeoutSeconds 负责缺省及1–3600秒边界。高级参数编辑默认/会话配置，非法输入前端阻止保存；持久化无需迁移旧 bindings.json。hook读取后转换timeoutMs，经index.chatTransport传入postChatCompletion；诊断/模型工具白名单带该值及timeout错误类别。已开始的请求使用开始时的快照，后续修改不追溯。
+
+新增undici依赖只使用官方getGlobalDispatcher；每请求dispatcher包装将headersTimeout/bodyTimeout设0并委托原dispatcher，防止底层默认300秒先截断更长配置，不调用setGlobalDispatcher、不改代理或TLS。总响应计时器覆盖等待头和读完整正文，原AbortSignal仍可随时取消；每次SPreset工具模型往返各自计时，没有自动重试。升级部署需要npm ci --ignore-scripts安装新依赖后再启动DSH。
+
+最终完整测试50文件、0失败（其中request-timeout含10个用例）；真实apply→hook→本机HTTP验证计时器传递、头/正文分别超时与取消、无自动重试、失败无变量提交、dispatcher0/0和默认/会话隔离。UI验证保存、重开、恢复默认及非法值；旧helper-editor测试需等待页面rAF自动聚焦完成再输入，已补等待以消除合成输入竞争。npm audit --omit=dev为0项；未请求真实模型、未读取私人正文。部署前备份27个素材/绑定/状态文件哈希，不修改其内容。

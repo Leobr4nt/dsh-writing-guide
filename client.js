@@ -276,6 +276,7 @@ window.__ModuleLoader__.load({
             h('div',{key:'phase'},'请求状态：'+({preparing:'组装中',requesting:'请求中',completed:'已完成',failed:'失败',aborted:'已取消'}[last.phase]??'未知')),
             h('div',{key:'route'},(last.requestSent?'实际请求模型：':'配置模型（尚未发送）：')+last.writingRoute),
             h('div',{key:'time',className:'wg-hint'},'记录时间：'+last.at),
+            h('div',{key:'timeout',className:'wg-hint'},'本次请求超时：'+last.requestTimeoutSeconds+' 秒'),
             last.requestSent?h('div',{key:'counts',className:'wg-hint'},'消息 '+last.messages+' 条 · system '+last.roles.system+' / user '+last.roles.user+' / assistant '+last.roles.assistant+' · 世界书 '+last.worlds+' 本 · 输出上限 '+last.outputCap+' token'):null,
             last.errorCode?h('div',{key:'code',className:'wg-err'},'错误类别：'+last.errorCode):null,
             h('div',{key:'hint',className:'wg-hint'},'这是该次请求的记录；修改配置后，要到下一次请求才会更新。这里只显示结构和状态。'),
@@ -945,6 +946,8 @@ window.__ModuleLoader__.load({
       };
 
       const save = async () => {
+        const timeout=Number(draft.requestTimeoutSeconds??600);
+        if(!Number.isInteger(timeout)||timeout<1||timeout>3600){fail(new Error('请求超时请输入 1–3600 之间的整数秒数'));return;}
         setSaving(true);
         try {
           const body = target ? { sessionId: target, binding: draft } : { defaults: draft };
@@ -1046,6 +1049,10 @@ window.__ModuleLoader__.load({
                   h(Field,{key:'context',label:'上下文窗口（token）'},[
                     h('input',{key:'input',type:'number',min:0,step:1024,value:draft.contextWindow??0,disabled:saving,onChange:event=>set({contextWindow:Number(event.target.value)||0})}),
                     h('span',{key:'hint',className:'wg-hint'},'0 沿用全局设置或模型提供的上下文容量。'),
+                  ]),
+                  h(Field,{key:'timeout',label:'请求超时（秒）'},[
+                    h('input',{key:'input',type:'number',min:1,max:3600,step:1,value:draft.requestTimeoutSeconds??600,disabled:saving,onChange:event=>set({requestTimeoutSeconds:event.target.value===''?'':Number(event.target.value)})}),
+                    h('span',{key:'hint',className:'wg-hint'},'默认 600 秒（10 分钟），可设 1–3600 秒。每次模型请求从发出到完整回复的等待上限，包含思考和生成时间；可随时取消。保存后从下一次请求生效。'),
                   ]),
                   h(Field,{key:'note',label:'作者注'},[
                     h('textarea',{key:'input',value:draft.authorNote??'',disabled:saving,placeholder:'补充叙事视角、文风或本轮写作要求',onChange:event=>set({authorNote:event.target.value})}),

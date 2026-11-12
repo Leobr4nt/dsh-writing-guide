@@ -30,3 +30,5 @@ Version 0.5.0 adds marked 17.0.1 (MIT), sanitize-html 2.18.1 (MIT), and Ajv 8.20
 Dependency maintenance for 0.5.0 also updates Vue, Lodash, YAML and Zod to the exact versions in package-lock.json. The final production npm audit reported no known vulnerabilities at validation time; this is a point-in-time package advisory check, not a guarantee of complete runtime security.
 
 Version 0.5.1 explicitly depends on htmlparser2 10.0.0 (MIT) for preserving full HTML documents and ipaddr.js 2.2.0 (MIT) for public-address checks. Dependency licenses are retained in installed packages. Reading documents execute in a separate browser context, not the DSH application document. Public image caching uses an independent, credential-free downloader.
+
+Version 0.5.10 adds undici 7.30.2 (MIT), pinned by package-lock.json, to access the official getGlobalDispatcher API. Writing requests delegate to the existing dispatcher while letting the configured total response deadline own timing. Installed package licenses are retained.

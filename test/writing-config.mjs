@@ -47,7 +47,8 @@ try {
   await run({...bindings.defaults(),presetId:'missing'});assert.equal((await diagnostic()).requestSent,false);assert.equal((await diagnostic()).errorCode,'WRITING_GUIDE_BAD_BINDING');
   await run(bindings.defaults(),{signal:AbortSignal.abort()});assert.equal((await diagnostic()).phase,'aborted');assert.equal((await diagnostic()).requestSent,false);
   response='ok';await run();
-  assert.deepEqual(Object.keys(await diagnostic()).sort(),['at','phase','requestSent','writingRoute','messages','roles','worlds','outputCap','errorCode'].sort());
+  assert.deepEqual(Object.keys(await diagnostic()).sort(),['at','phase','requestSent','writingRoute','messages','roles','worlds','outputCap','requestTimeoutSeconds','errorCode'].sort());
+  assert.equal(captured.timeoutMs,600000,'legacy bindings default to ten minutes');
 
   const vendor=await build({stdin:{contents:"import * as React from 'react';import{createRoot}from'react-dom/client';window.React=React;window.mount=component=>createRoot(document.querySelector('#root')).render(React.createElement(component));",resolveDir:fileURLToPath(new URL('../',import.meta.url))},bundle:true,write:false,format:'iife',platform:'browser',logLevel:'silent'});
   browser=await chromium.launch({executablePath:process.env.DSH_WRITING_BROWSER||'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true});
@@ -88,6 +89,16 @@ try {
   assert.equal(calls.some(c=>c.path.endsWith('/work/generate')||c.path.endsWith('/preview')),false);
   await page.locator('.wg-tabs').getByRole('button',{name:'写作配置',exact:true}).click();await page.getByLabel('配置应用于',{exact:true}).waitFor();await page.setViewportSize({width:480,height:900});await page.locator('[data-global-settings] summary').first().click();
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
+  await page.locator('[data-config-advanced] summary').click();
+  const timeout=page.getByLabel('请求超时（秒）',{exact:true});assert.equal(await timeout.inputValue(),'600');
+  await timeout.fill('0');const writes=calls.filter(c=>c.method==='POST').length;await page.getByRole('button',{name:'保存默认配置',exact:true}).click();await page.getByText('请求超时请输入 1–3600 之间的整数秒数',{exact:true}).waitFor();assert.equal(calls.filter(c=>c.method==='POST').length,writes,'invalid timeout never reaches the save route');
+  await timeout.fill('900');await page.getByRole('button',{name:'保存默认配置',exact:true}).click();await page.getByText('默认写作配置已保存',{exact:true}).waitFor();assert.equal((await store.loadBindings()).defaultBinding.requestTimeoutSeconds,900);
+  await page.getByLabel('配置应用于',{exact:true}).selectOption('s1');assert.equal(await timeout.inputValue(),'900');await timeout.fill('1200');await page.getByRole('button',{name:'保存此会话配置',exact:true}).click();await page.getByText('已保存到该会话（默认配置未变）',{exact:true}).waitFor();
+  const timeoutBindings=new BindingCache(await store.loadBindings());assert.equal(timeoutBindings.get('s1').requestTimeoutSeconds,1200);assert.equal(timeoutBindings.defaults().requestTimeoutSeconds,900);
+  await run(timeoutBindings.get('s1'));assert.equal(captured.timeoutMs,1200000);assert.equal((await diagnostic()).requestTimeoutSeconds,1200);
+  await page.getByLabel('配置应用于',{exact:true}).selectOption('s2');assert.equal(await timeout.inputValue(),'900','other sessions retain the default');
+  await page.locator('.wg-tabs').getByRole('button',{name:'预设',exact:true}).click();await page.locator('.wg-tabs').getByRole('button',{name:'写作配置',exact:true}).click();await page.getByLabel('配置应用于',{exact:true}).waitFor();await page.getByLabel('配置应用于',{exact:true}).selectOption('s1');await page.locator('[data-config-advanced] summary').click();assert.equal(await timeout.inputValue(),'1200','reopening the page reloads saved timeout');
+  await page.getByRole('button',{name:'恢复默认',exact:true}).click();await page.getByText('该会话已恢复为默认配置',{exact:true}).waitFor();assert.equal(await timeout.inputValue(),'900');
   if(process.env.WG_TEST_SCREENSHOT){await page.setViewportSize({width:1280,height:1100});await page.screenshot({path:process.env.WG_TEST_SCREENSHOT});}
   assert.equal(errors.length,0,JSON.stringify(errors));
   console.log('writing-config: actual UI, global saves, unchanged bindings, current-session request metadata, failure/abort privacy and read-only archive passed');

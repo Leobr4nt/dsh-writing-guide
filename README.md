@@ -6,10 +6,20 @@
 
 ## 安装与更新
 
-1. 克隆本仓库到固定目录；私有仓库需先登录有权限的 GitHub 账号。
+1. 克隆本仓库到固定目录，或在 GitHub 点击 **Code → Download ZIP** 后解压。目录内应直接包含 `package.json`。
 2. 使用 Node.js 24.9+ 运行 `npm ci --ignore-scripts`。
 3. 在 DSH 插件管理器安装本地目录并启用。目录内应直接包含 `package.json`。
 4. 正常退出并重启 DSH。以本地目录安装后，请不要移动或删除目录。
+
+首次通过 Git 安装：
+
+```powershell
+git clone https://github.com/Leobr4nt/dsh-writing-guide.git
+cd dsh-writing-guide
+npm ci --ignore-scripts
+```
+
+然后在 DSH 插件管理器中安装上面的 `dsh-writing-guide` 目录。使用 ZIP 下载时，在解压后的插件目录运行同一条 `npm ci --ignore-scripts` 命令，再安装该目录。插件不包含模型账号、密钥、私人预设、角色卡、世界书或聊天记录，使用者需自行配置和导入。
 
 桌面版内置命令也支持安装，例如：
 

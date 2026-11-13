@@ -1,0 +1,32 @@
+[
+  {
+    "id": "dsh-display-fold-writing-covenant-v1",
+    "scriptName": "折叠写作约定（仅显示）",
+    "findRegex": "/<writing_covenant\\b[^>]*>([\\s\\S]*?)(?:<\\/writing_covenant\\s*>|(?=<\\/draft\\s*>))/gi",
+    "replaceString": "\n<details data-writing-fold=\"writing_covenant\"><summary>写作约定（点击展开）</summary>\n<div>\n\n$1\n\n</div>\n</details>\n",
+    "placement": [2],
+    "disabled": false,
+    "markdownOnly": true,
+    "promptOnly": false,
+    "runOnEdit": true,
+    "substituteRegex": 0,
+    "trimStrings": [],
+    "minDepth": null,
+    "maxDepth": null
+  },
+  {
+    "id": "dsh-display-fold-draft-v1",
+    "scriptName": "折叠草稿（仅显示）",
+    "findRegex": "/<draft\\b[^>]*>([\\s\\S]*?)<\\/draft\\s*>/gi",
+    "replaceString": "\n<details data-writing-fold=\"draft\"><summary>草稿（点击展开）</summary>\n<div>\n\n$1\n\n</div>\n</details>\n",
+    "placement": [2],
+    "disabled": false,
+    "markdownOnly": true,
+    "promptOnly": false,
+    "runOnEdit": true,
+    "substituteRegex": 0,
+    "trimStrings": [],
+    "minDepth": null,
+    "maxDepth": null
+  }
+]

@@ -294,3 +294,11 @@ snapshotReadingDom在克隆节点上把computed contentVisibility auto改visible
 work/probe-multiple-folds.mjs只程序内处理私人回复，输出按钮节点号、开合布尔及几何坐标，跟踪上中下自定义心声连续开合。源HTML/脚本/正文不输出，真实模型请求0。此次不能仅靠summary点击测试或存在节点数声称全部滚动问题解决。
 
 原54个测试文件全量0失败；新增reading-lazy-layout的5项独立通过（合计55个文件已验证），覆盖同名按钮/重复HTML id/双iframe/root+body auto/分帧加载与等待期间主动滚动。真实三个心声依次展开、逆序收起、再开最下共7次：scrollDelta=0、screenDelta=0、只改变预期node状态。明确保留原source auto及hidden设置，投影完整布局才禁用auto。独立审查还发现内部滚动容器重复id/无id重建的潜在恢复限制，不符合此次现场（内scroll为0、nodes稳定）的根因，不以此扩大修改。
+
+## 2026-11-13 折叠规则的跨电脑分发
+
+用户在另一台电脑克隆安装后缺少草稿折叠。原因：此前只提交了程序渲染/交互修复，两个markdownOnly正则仅添加到了原电脑community-v082预设，导出的纯规则文件停留在仓库外outputs。补入examples/regex/draft-covenant-folding.json及导入说明，并加入package.json files列表，Git和安装包都携带。仅发布本项目编写的两条通用规则，无私人材料。运行代码仍为0.5.14，本次没有改动渲染逻辑、修改任何用户数据或自动启用全局规则。
+
+新电脑可在实际使用的预设行“正则N”进入来源，选择规则文件并导入，启用该来源及条目。顺序covenant→draft；不要重复导入，原生导入会追加随机ID。仅导入配置无需重启/重生成。角色心声仍来自原素材的规则/脚本，不包含在这份draft规则中。
+
+用户同时报告另一台“写作阅读”正文前思考直接展开。本机合成probe确认当前think/thinking为折叠，analysis不转换；不是源码统一无条件隐藏。说明中加入当前会话绑定、预设/角色来源允许列表、markdownOnly与显示原文等排查步骤。远端用户数据未读取，不能断言其一定仅为来源开关问题，更不能将私人规则或完整预设发GitHub。

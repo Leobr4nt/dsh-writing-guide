@@ -1570,7 +1570,6 @@ window.__ModuleLoader__.load({
       const doc= row.interactive ? surface?.document : '<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'none\'; style-src \'unsafe-inline\'; img-src data:; base-uri \'none\'; form-action \'none\'"><style>:root{color-scheme:light dark}body{margin:0;padding:4px;font:15px/1.75 system-ui;overflow-wrap:anywhere}img{max-width:100%}pre{white-space:pre-wrap}details{padding:8px;border:1px solid #8884;border-radius:8px}</style>'+row.html;
       useEffect(()=>{
         const node=frame.current;if(!node)return;let observer,mutation,resizePending=false,disposed=false,activeDocument=null,cleanDocument=()=>{};
-        node.removeAttribute('data-reading-ready');
         const resize=()=>{
           if(resizePending||disposed||!activeDocument)return;resizePending=true;
           const measuredDocument=activeDocument;
@@ -1593,7 +1592,6 @@ window.__ModuleLoader__.load({
               // may still be clamped to the temporary one-pixel document.
               void node.offsetHeight;
               for(const {el,top,left}of positions)if(el.scrollTop!==top||el.scrollLeft!==left)el.scrollTo({top,left,behavior:'instant'});
-              if(measuredDocument.URL==='about:srcdoc'&&!node.hasAttribute('data-reading-ready'))node.setAttribute('data-reading-ready','true');
             }catch{}
           });
         };
@@ -1678,42 +1676,40 @@ window.__ModuleLoader__.load({
       },[sessionId,preset,running]);
       useEffect(()=>{
         const root=readingRoot.current;if(preset!=='writer'||!root)return;
-        const document=root.ownerDocument,win=document.defaultView,key='dsh-writing-guide:reading-position:'+sessionId;
+        const document=root.ownerDocument,win=document.defaultView;
         // ConversationContent owns this scrollport; older layouts can scroll the document.
         let scroller=root.closest('[data-conversation-scroll]');
         if(!scroller)for(let parent=root.parentElement;parent;parent=parent.parentElement){if(/^(auto|scroll)$/.test(win.getComputedStyle(parent).overflowY)){scroller=parent;break;}}
         scroller??=document.scrollingElement;if(!scroller)return;
         const events=scroller===document.scrollingElement?document:scroller;
-        let saved=null,lastPosition=null,restoring=true,disposed=false,raf=0,timer=0,writtenTop=scroller.scrollTop;
-        try{const value=JSON.parse(win.localStorage.getItem(key));if(value&&Number.isFinite(value.top)&&value.top>=0&&Number.isFinite(value.left)&&value.left>=0)saved=value;}catch{}
-        const persist=()=>{if(lastPosition)try{win.localStorage.setItem(key,JSON.stringify(lastPosition));}catch{}};
-        const remember=()=>{
-          if(loadedSession.current!==sessionId)return;
-          lastPosition={top:scroller.scrollTop,left:scroller.scrollLeft};clearTimeout(timer);timer=setTimeout(persist,150);
-        };
-        const finish=()=>{if(!restoring)return;restoring=false;resize.disconnect();mutation.disconnect();cancelAnimationFrame(raf);raf=0;remember();};
+        let following=true,disposed=false,raf=0,writtenTop=scroller.scrollTop,lastMax=scroller.scrollHeight-scroller.clientHeight;
+        const finish=()=>{following=false;resize.disconnect();mutation.disconnect();cancelAnimationFrame(raf);raf=0;};
         const place=()=>{
-          raf=0;if(disposed||!restoring||loadedSession.current!==sessionId||root.dataset.readingLoaded!=='true'||!root.getClientRects().length)return;
-          scroller.scrollTo({top:saved?saved.top:scroller.scrollHeight,left:saved?.left??scroller.scrollLeft,behavior:'instant'});writtenTop=scroller.scrollTop;
-          // Keep the original target while earlier or multi-part frames are still loading.
-          // A failed frame is terminal too; it must not leave restoration running forever.
-          if([...root.querySelectorAll('[data-reading-document]')].every(el=>el.querySelector('iframe[data-reading-ready]')||el.querySelector('[role="alert"]')))finish();
+          raf=0;if(disposed||!following||loadedSession.current!==sessionId||root.dataset.readingLoaded!=='true'||!root.getClientRects().length)return;
+          scroller.scrollTo({top:scroller.scrollHeight,left:scroller.scrollLeft,behavior:'instant'});
+          writtenTop=scroller.scrollTop;lastMax=scroller.scrollHeight-scroller.clientHeight;
         };
-        const schedule=()=>{if(!disposed&&restoring&&!raf)raf=requestAnimationFrame(place);};
+        const schedule=()=>{if(!disposed&&following&&!raf)raf=requestAnimationFrame(place);};
         const resize=new ResizeObserver(schedule),mutation=new MutationObserver(schedule);
-        resize.observe(root);mutation.observe(root,{subtree:true,childList:true,attributes:true,attributeFilter:['data-reading-ready','data-reading-loaded']});
-        const scroll=()=>{if(restoring){if(scroller.scrollTop<writtenTop-1)finish();}else remember();};
+        // First complete iframe layout is not final: later reflow can still move
+        // the bottom. Follow size changes until the reader takes control.
+        resize.observe(root);resize.observe(scroller);
+        const composer=scroller.querySelector('[data-composer-seat]');if(composer)resize.observe(composer);
+        mutation.observe(root,{subtree:true,childList:true,attributes:true,attributeFilter:['data-reading-loaded']});
+        const scroll=()=>{
+          if(!following)return;const top=scroller.scrollTop,max=scroller.scrollHeight-scroller.clientHeight;
+          // Browser anchoring and range clamping during layout are not user input.
+          const layoutMoved=max!==lastMax&&(Math.abs(top-Math.min(writtenTop,max))<2||Math.abs(top-(writtenTop+max-lastMax))<2);
+          if(max-top>2&&Math.abs(top-writtenTop)>2&&!layoutMoved)finish();else schedule();
+        };
         const interacting=()=>finish();
         const interactionEvents=['wheel','pointerdown','touchstart','keydown','click','writing-reading-interaction'];
         for(const name of interactionEvents)events.addEventListener(name,interacting,{capture:true,passive:true});
-        events.addEventListener('scroll',scroll,{passive:true});win.addEventListener('pagehide',persist);schedule();
+        events.addEventListener('scroll',scroll,{passive:true});schedule();
         return()=>{
-          disposed=true;resize.disconnect();mutation.disconnect();cancelAnimationFrame(raf);clearTimeout(timer);
+          disposed=true;finish();
           for(const name of interactionEvents)events.removeEventListener(name,interacting,true);
-          events.removeEventListener('scroll',scroll);win.removeEventListener('pagehide',persist);
-          // React may already have removed the long document here. Save the last
-          // observed position, never the now-clamped scrollTop of an empty view.
-          persist();
+          events.removeEventListener('scroll',scroll);
         };
       },[sessionId,preset]);
       if(preset!=='writer')return h('div',{style:{padding:24}},'写作阅读仅用于写作模式会话。');

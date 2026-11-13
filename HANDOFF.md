@@ -312,3 +312,11 @@ work/probe-multiple-folds.mjs只程序内处理私人回复，输出按钮节点
 滚动时缓存坐标、150ms合并落盘，pagehide与卸载写最近缓存，不读卸载后已塌缩到0的DOM。存储异常仅禁用持久化，不阻断阅读。位置按电脑/前端配置隔离，不上Git、不跨电脑同步；只记外层坐标，不是段落书签，也不新增跨重开折叠状态恢复。正文改写/布局变化可改变同一坐标对应的段落，缩短后正常clamp。
 
 本轮7个相关测试文件通过：reading-position新增11项（nested/document、重进、顶部0、A/B/A、页面重载、延迟多段、手动滚动、poll/running/new reply、失败页、非法/禁用存储、加载前离开）；reading-refresh-state 13项、reading-lazy-layout 5项、reading-scroll 32个操作delta=0及过期恢复；reading-folds-client、reading-client、client-api通过。node --check和git diff --check通过。未重跑全量56文件，未请求真实模型、读取私人正文或修改素材。代码需更新实际安装目录并正常重启DSH加载；合成浏览器验收不冒充另一台电脑的实机验收。
+
+## 0.5.16 打开到底部并跟随延迟排版（2026-11-13）
+
+用户现场仍觉得位置不对，观察到慢加载时滚动条由长变短，明确撤回位置记忆需求，要求每次打开直接到底部。不能继续修补/恢复旧localStorage坐标。合成真实WritingReadingView测试在所有iframe第一次加载完成后把末段6500px增高到8500px；旧0.5.15因all-frames-ready立即finish，bottom断言超时。该复现证明存在延迟排版跟随缺口，但未读取用户真实正文来断言其唯一现场原因。
+
+移除位置持久化及只服务于完成判定的data-reading-ready标记。新会话/重进开始following，ResizeObserver跟踪reading root、宿主滚动容器、源码已确认的data-composer-seat；MutationObserver负责异步内容插入/loaded变化。无固定延时、首次完成截止点，继续instant滚动到真实scrollHeight直到用户接管。scroll区分主动离开底部与布局导致的top保持/锚定/范围clamp；iframe输入事件继续通过无内容本地事件结束跟随。停止后poll、running、后续布局和新消息不能重新拉底，重进才恢复跟随。旧坐标保留但完全不读写。
+
+本轮7个相关测试文件全部通过：reading-position改为14项，覆盖旧坐标忽略、每次重进/A-B-A/页面重载到底、多段延迟、nested/document在全部ready后反复增高/缩短、输入框延迟增高、视口变化、加载中clamp、手动滚动停止及异常路径；reading-refresh-state 13项、reading-lazy-layout 5项、reading-scroll 32次delta=0及过期恢复、reading-folds-client、reading-client和client-api通过。语法及diff检查通过；未重跑全部56文件，不请求模型、不查看私人正文。加载耗时仍由历史/美化处理决定，此轮不承诺加速。更新需部署到实际安装副本并重启。

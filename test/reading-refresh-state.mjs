@@ -90,6 +90,8 @@ async function createFixture(t,{view=false,running=false,row=fixtureRow()}={}){
 }
 
 async function position(page,{outer=5000,top=1200,left=230,anonymousTop=900,anonymousLeft=180}={}){
+  // This helper represents a reader moving through the page, not host autofocus.
+  await page.mouse.move(300,250);await page.mouse.wheel(0,-1);await settle(page);
   await page.evaluate(values=>{
     const documentInside=document.querySelector('iframe').contentDocument;
     document.querySelector('#scroller').scrollTo({top:values.outer,behavior:'instant'});

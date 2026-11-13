@@ -25,12 +25,27 @@ const row=(id,height,interactive=false)=>({id,role:'assistant',interactive,html:
 function deferred(){let resolve;const promise=new Promise(done=>resolve=done);return {promise,resolve};}
 async function settle(page){await page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(done)))));}
 async function position(page){return page.evaluate(()=>{const s=document.querySelector('[data-conversation-scroll]')??document.scrollingElement;return {top:s.scrollTop,max:s.scrollHeight-s.clientHeight};});}
-async function go(page,top){await page.evaluate(top=>{const s=document.querySelector('[data-conversation-scroll]')??document.scrollingElement;s.scrollTo({top,behavior:'instant'});},top);await settle(page);}
+async function go(page,top){
+  // Real browser input distinguishes a reader gesture from focus/layout scrolls.
+  await page.mouse.move(300,250);await page.mouse.wheel(0,-1);await settle(page);
+  await page.evaluate(top=>{const s=document.querySelector('[data-conversation-scroll]')??document.scrollingElement;s.scrollTo({top,behavior:'instant'});},top);await settle(page);
+}
 async function loaded(page,count){
   await page.waitForFunction(count=>window.pending===0&&document.querySelectorAll('iframe').length===count&&[...document.querySelectorAll('iframe')].every(f=>f.contentDocument?.querySelector('[data-fixture]')&&f.clientHeight>1000),count);
   await settle(page);
 }
-async function bottom(page){await page.waitForFunction(()=>{const s=document.querySelector('[data-conversation-scroll]')??document.scrollingElement;return Math.abs(s.scrollHeight-s.clientHeight-s.scrollTop)<3;});await settle(page);const p=await position(page);assert.ok(Math.abs(p.top-p.max)<3,'must finish at the actual bottom');}
+async function bottom(page){
+  // Focus with scroll-behavior:smooth may start moving only on the next frame.
+  // Require a stable landing, not a one-frame visit to the bottom.
+  await page.evaluate(()=>new Promise((resolve,reject)=>{
+    let stable=0,previousMax=-1;const start=performance.now();
+    const sample=()=>{const s=document.querySelector('[data-conversation-scroll]')??document.scrollingElement,max=s.scrollHeight-s.clientHeight,gap=max-s.scrollTop;
+      stable=Math.abs(gap)<3&&max===previousMax?stable+1:0;previousMax=max;
+      if(stable>=6)return resolve();if(performance.now()-start>6000)return reject(Error('Bottom did not settle: '+JSON.stringify({top:s.scrollTop,max,gap})));
+      requestAnimationFrame(sample);
+    };requestAnimationFrame(sample);
+  }));
+}
 async function fixture(t,{mode='nested',rows=[row('one',3500),row('two',6500,true)],saved,hold,fail=false,storageBlocked=false}={}){
   const context=await browser.newContext({viewport:{width:1100,height:800}}),page=await context.newPage(),errors=[];
   page.setDefaultTimeout(6000);page.on('pageerror',e=>errors.push(e.message));
@@ -44,7 +59,10 @@ async function fixture(t,{mode='nested',rows=[row('one',3500),row('two',6500,tru
     const current=(sessions.get(session)??[]).flatMap(r=>r.parts??[r]).find(r=>r.id===body.messageId);
     return {token:'synthetic',document:'<!doctype html><style>body{margin:0}</style>'+current.html};
   });
-  await page.route('https://fixture.invalid/**',route=>route.fulfill({contentType:'text/html',body:`<!doctype html><style>html,body{margin:0;scroll-behavior:smooth}#scroller{height:650px;overflow:auto;scroll-behavior:smooth}#composer{height:100px;position:sticky;bottom:0;background:white}</style>${mode==='nested'?'<div id="scroller" data-conversation-scroll>':''}<div id="app"></div><div id="composer" data-composer-seat><input aria-label="Composer"></div>${mode==='nested'?'</div>':''}`}));
+  // Host layout follows ConversationContent/DefaultConversationViews and the
+  // renderer's display:contents slot anchors, not just a plain scrolling div.
+  const host=mode==='host',nested=mode!=='document';
+  await page.route('https://fixture.invalid/**',route=>route.fulfill({contentType:'text/html',body:`<!doctype html><style>html,body{margin:0;scroll-behavior:smooth}#scroller{height:650px;overflow:auto;scroll-behavior:smooth}#composer{height:100px;position:sticky;bottom:0;background:white}${host?'#host{display:flex;flex-direction:column;height:700px}#scroller{display:flex;flex-direction:column;flex:1;min-height:0;scrollbar-gutter:stable}[data-slot],#app{display:contents}#view{display:flex;flex-direction:column;flex:1 0 auto;min-height:auto}#composer{flex:none;margin-top:auto;overflow-anchor:none}':''}</style>${host?'<div id="host" data-conversation-content><header style="height:50px;flex:none">SYNTHETIC HEADER</header>':''}${nested?'<div id="scroller" data-conversation-scroll>':''}${host?'<div data-slot="conversation.session"><div id="view">':''}<div id="app" data-slot="conversation.view"></div>${host?'</div></div>':''}<div id="composer" data-composer-seat><input aria-label="Composer"></div>${nested?'</div>':''}${host?'</div>':''}`}));
   await page.goto('https://fixture.invalid/');
   if(saved!==undefined)await page.evaluate(({key,saved})=>localStorage.setItem(key,typeof saved==='string'?saved:JSON.stringify(saved)),{key:storageKey('a'),saved});
   if(storageBlocked)await page.evaluate(()=>Object.defineProperty(window,'localStorage',{get(){throw new DOMException('Synthetic blocked storage','SecurityError');}}));
@@ -53,7 +71,7 @@ async function fixture(t,{mode='nested',rows=[row('one',3500),row('two',6500,tru
 }
 
 try{
-  for(const mode of ['nested','document'])await test(`opens ${mode} at bottom on every reentry, ignoring saved coordinates`,async t=>{
+  for(const mode of ['nested','document','host'])await test(`opens ${mode} at bottom on every reentry, ignoring saved coordinates`,async t=>{
     const {page}=await fixture(t,{mode,saved:{top:0,left:0}});await loaded(page,2);await bottom(page);
     await go(page,1800);await page.evaluate(()=>window.closeReading());await page.evaluate(()=>window.openReading());await loaded(page,2);
     await bottom(page);
@@ -82,7 +100,7 @@ try{
   await test('manual scrolling inside a frame cancels following until next entry',async t=>{
     const {page,entered,gate}=await fixture(t,{rows:[row('one',7000),row('two',6000,true)],saved:{top:10000,left:0},hold:'two'});
     await entered.promise;await page.waitForFunction(()=>document.querySelector('iframe')?.clientHeight>6000);await settle(page);
-    await page.frameLocator('iframe').locator('body').evaluate(el=>el.dispatchEvent(new WheelEvent('wheel',{deltaY:-200,bubbles:true})));
+    assert.equal(await page.evaluate(()=>document.elementFromPoint(300,250)?.tagName),'IFRAME','gesture starts inside the loaded frame');
     await go(page,1200);gate.resolve();await loaded(page,2);assert.equal((await position(page)).top,1200,'late response respects manual reading');
     await page.evaluate(()=>window.closeReading());await page.evaluate(()=>window.openReading());await loaded(page,2);await bottom(page);
   });
@@ -133,5 +151,45 @@ try{
     await page.frameLocator('iframe').locator('[data-fixture]').evaluate(el=>el.style.height='1200px');
     await page.waitForFunction(()=>document.querySelector('iframe').clientHeight<2000);await bottom(page);
     gate.resolve();await loaded(page,2);await bottom(page);
+  });
+  await test('automatic host scrolling cannot cancel following during loading',async t=>{
+    const {page,entered,gate}=await fixture(t,{rows:[row('one',7000),row('two',6000,true)],hold:'two'});
+    await entered.promise;await page.waitForFunction(()=>document.querySelector('iframe')?.clientHeight>6000);await bottom(page);
+    // A browser/host scroll is not evidence of a reader gesture. Keep the scroll
+    // range unchanged so coordinate heuristics cannot explain away this case.
+    for(let i=0;i<4;i++){
+      await settle(page);await page.evaluate(()=>document.querySelector('[data-conversation-scroll]').scrollTop=0);await settle(page);await bottom(page);
+    }
+    gate.resolve();await loaded(page,2);await bottom(page);
+  });
+  for(const mode of ['nested','document','host'])await test(`automatic focus scrolling ${mode} after loading cannot cancel following`,async t=>{
+    const {page}=await fixture(t,{mode});await loaded(page,2);await bottom(page);
+    await page.evaluate(()=>document.querySelector('[data-writing-reading] button').focus());
+    await bottom(page);
+    await page.frameLocator('iframe').nth(1).locator('[data-fixture]').evaluate(el=>el.style.height='11000px');
+    await page.waitForFunction(()=>document.querySelectorAll('iframe')[1].clientHeight===11002);await bottom(page);
+  });
+  await test('synthetic input events cannot impersonate a reader gesture',async t=>{
+    const {page}=await fixture(t);await loaded(page,2);await bottom(page);
+    await page.evaluate(()=>{const s=document.querySelector('[data-conversation-scroll]');s.dispatchEvent(new WheelEvent('wheel',{deltaY:-100,bubbles:true}));s.scrollTop=0;});
+    await bottom(page);
+    await page.frameLocator('iframe').nth(1).locator('body').evaluate(el=>el.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true})));
+    await page.evaluate(()=>document.querySelector('[data-conversation-scroll]').scrollTop=0);await bottom(page);
+  });
+  await test('a real keyboard gesture hands control to the reader',async t=>{
+    const {page}=await fixture(t);await loaded(page,2);await bottom(page);
+    await page.locator('[data-conversation-scroll]').evaluate(el=>{el.tabIndex=0;el.focus({preventScroll:true});});
+    await page.keyboard.press('Home');await page.waitForFunction(()=>document.querySelector('[data-conversation-scroll]').scrollTop===0);
+    await page.frameLocator('iframe').nth(1).locator('[data-fixture]').evaluate(el=>el.style.height='11000px');
+    await page.waitForFunction(()=>document.querySelectorAll('iframe')[1].clientHeight===11002);await settle(page);assert.equal((await position(page)).top,0);
+  });
+  await test('a real click inside the iframe hands control to the reader',async t=>{
+    const {page}=await fixture(t);await loaded(page,2);await bottom(page);
+    assert.equal(await page.evaluate(()=>document.elementFromPoint(300,250)?.tagName),'IFRAME');
+    await page.mouse.click(300,250);
+    await page.evaluate(()=>document.querySelector('[data-conversation-scroll]').scrollTo({top:1700,behavior:'instant'}));await settle(page);
+    assert.equal((await position(page)).top,1700,'trusted iframe input must stop following before later layout');
+    await page.frameLocator('iframe').nth(1).locator('[data-fixture]').evaluate(el=>el.style.height='11000px');
+    await page.waitForFunction(()=>document.querySelectorAll('iframe')[1].clientHeight===11002);await settle(page);assert.equal((await position(page)).top,1700);
   });
 }finally{await browser.close();}

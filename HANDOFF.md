@@ -320,3 +320,11 @@ work/probe-multiple-folds.mjs只程序内处理私人回复，输出按钮节点
 移除位置持久化及只服务于完成判定的data-reading-ready标记。新会话/重进开始following，ResizeObserver跟踪reading root、宿主滚动容器、源码已确认的data-composer-seat；MutationObserver负责异步内容插入/loaded变化。无固定延时、首次完成截止点，继续instant滚动到真实scrollHeight直到用户接管。scroll区分主动离开底部与布局导致的top保持/锚定/范围clamp；iframe输入事件继续通过无内容本地事件结束跟随。停止后poll、running、后续布局和新消息不能重新拉底，重进才恢复跟随。旧坐标保留但完全不读写。
 
 本轮7个相关测试文件全部通过：reading-position改为14项，覆盖旧坐标忽略、每次重进/A-B-A/页面重载到底、多段延迟、nested/document在全部ready后反复增高/缩短、输入框延迟增高、视口变化、加载中clamp、手动滚动停止及异常路径；reading-refresh-state 13项、reading-lazy-layout 5项、reading-scroll 32次delta=0及过期恢复、reading-folds-client、reading-client和client-api通过。语法及diff检查通过；未重跑全部56文件，不请求模型、不查看私人正文。加载耗时仍由历史/美化处理决定，此轮不承诺加速。更新需部署到实际安装副本并重启。
+
+## 0.5.17 自动滚动不得冒充用户接管（2026-11-13）
+
+用户确认连续四五次完全不动键鼠，只有一次到底。核对desktop profile的Node模块解析路径，实际指向安装副本0.5.16、client哈希与Git一致。重新读DSH ConversationContent/ConversationRoot、renderer SlotOutlet，确认flex滚动容器、sticky composer以及display:contents插槽。work/probe-reading-opening.mjs仅在程序内处理最近写作会话，不显示正文/脚本/变量；读取12条消息、24段（6交互段），隔离运行器的设置目录使用临时副本，模型请求0。
+
+0.5.16在套装隔离页面两次成功，不据此声称现场已复现；新增自动focus + scroll-behavior:smooth用例则稳定复现top=0/max=9664的错误停止。旧代码靠scrollTop变化及两条layoutMoved公式猜用户意图，条件不完备。现在scroll只schedule，不再finish；真实wheel/pointer/touch/key/click以isTrusted判定，iframe可信输入转发本地事件，主监听提升到data-conversation-content以涵盖宿主WidthHandle滚轮。结束跟随后依旧不因poll/running/新消息重启，重新进入才开启。不新增计时器/位置存储/正文诊断上传。
+
+测试辅助函数原先把scrollTop赋值当人手翻页，现使用Playwright真实滚轮/键盘/点击；bottom断言要求连续6帧稳定，避免平滑聚焦在下一帧开始时的瞬时假阳性。reading-position覆盖22项，包含host flex/contents、自动聚焦nested/document/host、合成事件不接管、真实滚轮/键盘/iframe点击接管。reading-refresh-state 13项、reading-lazy-layout 5项、reading-scroll 32次delta=0及恢复、reading-folds-client、reading-client、client-api通过。实际套装在宿主CSS/插槽隔离布局连续6次重开，最终distance均0、意外stop=0、错误0；不是DSH当前窗口的实机验收。未重跑全部56文件，未生成小说/读取私人内容到输出。部署仍需正常退出后安装并重启，不能仅以文件版本声明现场已修好。

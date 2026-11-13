@@ -1630,7 +1630,7 @@ window.__ModuleLoader__.load({
           };
           const blockSubmit=event=>event.preventDefault();
           // Events inside an iframe do not bubble to its containing reading view.
-          const interacting=()=>node.dispatchEvent(new Event('writing-reading-interaction',{bubbles:true}));
+          const interacting=event=>{if(event.isTrusted)node.dispatchEvent(new Event('writing-reading-interaction',{bubbles:true}));};
           const interactionEvents=['wheel','pointerdown','touchstart','keydown','click'];
           for(const name of interactionEvents)document.addEventListener(name,interacting,{capture:true,passive:true});
           const toggled=event=>{const id=event.target?.dataset?.readingLocalFold;if(id)localFolds.current.set(id,event.target.open);resize();};
@@ -1682,12 +1682,12 @@ window.__ModuleLoader__.load({
         if(!scroller)for(let parent=root.parentElement;parent;parent=parent.parentElement){if(/^(auto|scroll)$/.test(win.getComputedStyle(parent).overflowY)){scroller=parent;break;}}
         scroller??=document.scrollingElement;if(!scroller)return;
         const events=scroller===document.scrollingElement?document:scroller;
-        let following=true,disposed=false,raf=0,writtenTop=scroller.scrollTop,lastMax=scroller.scrollHeight-scroller.clientHeight;
+        const gestures=scroller.closest('[data-conversation-content]')??events;
+        let following=true,disposed=false,raf=0;
         const finish=()=>{following=false;resize.disconnect();mutation.disconnect();cancelAnimationFrame(raf);raf=0;};
         const place=()=>{
           raf=0;if(disposed||!following||loadedSession.current!==sessionId||root.dataset.readingLoaded!=='true'||!root.getClientRects().length)return;
           scroller.scrollTo({top:scroller.scrollHeight,left:scroller.scrollLeft,behavior:'instant'});
-          writtenTop=scroller.scrollTop;lastMax=scroller.scrollHeight-scroller.clientHeight;
         };
         const schedule=()=>{if(!disposed&&following&&!raf)raf=requestAnimationFrame(place);};
         const resize=new ResizeObserver(schedule),mutation=new MutationObserver(schedule);
@@ -1696,20 +1696,18 @@ window.__ModuleLoader__.load({
         resize.observe(root);resize.observe(scroller);
         const composer=scroller.querySelector('[data-composer-seat]');if(composer)resize.observe(composer);
         mutation.observe(root,{subtree:true,childList:true,attributes:true,attributeFilter:['data-reading-loaded']});
-        const scroll=()=>{
-          if(!following)return;const top=scroller.scrollTop,max=scroller.scrollHeight-scroller.clientHeight;
-          // Browser anchoring and range clamping during layout are not user input.
-          const layoutMoved=max!==lastMax&&(Math.abs(top-Math.min(writtenTop,max))<2||Math.abs(top-(writtenTop+max-lastMax))<2);
-          if(max-top>2&&Math.abs(top-writtenTop)>2&&!layoutMoved)finish();else schedule();
-        };
-        const interacting=()=>finish();
-        const interactionEvents=['wheel','pointerdown','touchstart','keydown','click','writing-reading-interaction'];
-        for(const name of interactionEvents)events.addEventListener(name,interacting,{capture:true,passive:true});
-        events.addEventListener('scroll',scroll,{passive:true});schedule();
+        // A scroll event can come from focus, anchoring, or another host component.
+        // Only an actual input gesture hands control to the reader.
+        const interacting=event=>{if(event.isTrusted)finish();};
+        const interactionEvents=['wheel','pointerdown','touchstart','keydown','click'];
+        for(const name of interactionEvents)gestures.addEventListener(name,interacting,{capture:true,passive:true});
+        root.addEventListener('writing-reading-interaction',finish);
+        events.addEventListener('scroll',schedule,{passive:true});schedule();
         return()=>{
           disposed=true;finish();
-          for(const name of interactionEvents)events.removeEventListener(name,interacting,true);
-          events.removeEventListener('scroll',scroll);
+          for(const name of interactionEvents)gestures.removeEventListener(name,interacting,true);
+          root.removeEventListener('writing-reading-interaction',finish);
+          events.removeEventListener('scroll',schedule);
         };
       },[sessionId,preset]);
       if(preset!=='writer')return h('div',{style:{padding:24}},'写作阅读仅用于写作模式会话。');

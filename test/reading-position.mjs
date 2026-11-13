@@ -1,0 +1,115 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {fileURLToPath} from 'node:url';
+import test from 'node:test';
+import {chromium} from 'playwright-core';
+import {build} from 'esbuild';
+
+// Real production components; only synthetic text and metadata, no user files.
+const source=fs.readFileSync(process.env.WG_TEST_CLIENT??new URL('../client.js',import.meta.url),'utf8');
+const start=source.indexOf('    function ReadingFrame('),end=source.indexOf('    function RuntimeSurface(',start);
+assert.ok(start>=0&&end>start);
+const harness=`import React,{useState,useRef,useEffect,useCallback}from'react';import{createRoot}from'react-dom/client';
+const h=React.createElement,RuntimeSurface=()=>null;window.pending=0;
+const api=async(...args)=>{window.pending++;try{return await window.syntheticApi(...args);}finally{window.pending--;}};
+const intervals=new Map();let next=0;const setInterval=fn=>{intervals.set(++next,fn);return next;};const clearInterval=id=>intervals.delete(id);
+window.pollReading=()=>{for(const fn of intervals.values())void fn();};
+${source.slice(start,end)}
+let root=createRoot(document.querySelector('#app'));
+window.openReading=(sessionId='a',running=false)=>root.render(h(WritingReadingView,{sessionId,useProjection:()=> 'writer',useSession:fn=>fn({running})}));
+window.closeReading=()=>{root.unmount();root=createRoot(document.querySelector('#app'));};`;
+const bundle=await build({stdin:{contents:harness,resolveDir:fileURLToPath(new URL('../',import.meta.url))},bundle:true,write:false,format:'iife',logLevel:'silent'});
+const browser=await chromium.launch({executablePath:process.env.DSH_WRITING_BROWSER||'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true});
+const storageKey=id=>'dsh-writing-guide:reading-position:'+id;
+const row=(id,height,interactive=false)=>({id,role:'assistant',interactive,html:`<div data-fixture="${id}" style="height:${height}px">SYNTHETIC</div>`,original:'SYNTHETIC'});
+function deferred(){let resolve;const promise=new Promise(done=>resolve=done);return {promise,resolve};}
+async function settle(page){await page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(done)))));}
+async function position(page){return page.evaluate(()=>{const s=document.querySelector('[data-conversation-scroll]')??document.scrollingElement;return {top:s.scrollTop,max:s.scrollHeight-s.clientHeight};});}
+async function go(page,top){await page.evaluate(top=>{const s=document.querySelector('[data-conversation-scroll]')??document.scrollingElement;s.scrollTo({top,behavior:'instant'});},top);await settle(page);}
+async function loaded(page,count){
+  await page.waitForFunction(count=>window.pending===0&&document.querySelectorAll('iframe').length===count&&[...document.querySelectorAll('iframe')].every(f=>f.contentDocument?.querySelector('[data-fixture]')&&f.clientHeight>1000),count);
+  await settle(page);
+}
+async function fixture(t,{mode='nested',rows=[row('one',3500),row('two',6500,true)],saved,hold,fail=false,storageBlocked=false}={}){
+  const context=await browser.newContext({viewport:{width:1100,height:800}}),page=await context.newPage(),errors=[];
+  page.setDefaultTimeout(6000);page.on('pageerror',e=>errors.push(e.message));
+  const sessions=new Map([['a',rows],['b',[row('other',12000)]]]),gate=deferred(),entered=deferred();let held=false;
+  t.after(async()=>{gate.resolve();await context.close();assert.deepEqual(errors,[],'no page errors');});
+  await page.exposeFunction('syntheticApi',async(method,url,body)=>{
+    const session=method==='GET'?new URL(url,'https://fixture.invalid').searchParams.get('sessionId'):body.sessionId;
+    if(hold&&!held&&(hold==='get'?method==='GET':body?.messageId===hold)){held=true;entered.resolve();await gate.promise;}
+    if(method==='GET')return {messages:structuredClone(sessions.get(session)??[])};
+    if(fail)throw Error('Synthetic render failed');
+    const current=(sessions.get(session)??[]).flatMap(r=>r.parts??[r]).find(r=>r.id===body.messageId);
+    return {token:'synthetic',document:'<!doctype html><style>body{margin:0}</style>'+current.html};
+  });
+  await page.route('https://fixture.invalid/**',route=>route.fulfill({contentType:'text/html',body:`<!doctype html><style>html,body{margin:0;scroll-behavior:smooth}#scroller{height:650px;overflow:auto;scroll-behavior:smooth}#composer{height:100px;position:sticky;bottom:0;background:white}</style>${mode==='nested'?'<div id="scroller" data-conversation-scroll>':''}<div id="app"></div><div id="composer"><input aria-label="Composer"></div>${mode==='nested'?'</div>':''}`}));
+  await page.goto('https://fixture.invalid/');
+  if(saved!==undefined)await page.evaluate(({key,saved})=>localStorage.setItem(key,typeof saved==='string'?saved:JSON.stringify(saved)),{key:storageKey('a'),saved});
+  if(storageBlocked)await page.evaluate(()=>Object.defineProperty(window,'localStorage',{get(){throw new DOMException('Synthetic blocked storage','SecurityError');}}));
+  const boot=async()=>{await page.addScriptTag({content:bundle.outputFiles[0].text});await page.evaluate(()=>window.openReading());};
+  await boot();return {page,sessions,gate,entered,boot};
+}
+
+try{
+  for(const mode of ['nested','document'])await test(`opens ${mode} at latest then restores last position on reentry`,async t=>{
+    const {page}=await fixture(t,{mode});await loaded(page,2);
+    const initial=await position(page);assert.ok(Math.abs(initial.top-initial.max)<3,'first open should land at latest content');
+    await go(page,1800);await page.evaluate(()=>window.closeReading());await page.evaluate(()=>window.openReading());await loaded(page,2);
+    assert.equal((await position(page)).top,1800,'reentry restores saved reading position');
+    // Zero is a real saved position, not an absent/falsy preference.
+    await go(page,0);await page.evaluate(()=>window.closeReading());await page.evaluate(()=>window.openReading());await loaded(page,2);
+    assert.equal((await position(page)).top,0,'top is also remembered');
+    const saved=await page.evaluate(key=>JSON.parse(localStorage.getItem(key)),storageKey('a'));
+    assert.deepEqual(Object.keys(saved).sort(),['left','top'],'only coordinates are stored');
+  });
+  await test('A/B/A session switching isolates positions without remounting the view',async t=>{
+    const {page}=await fixture(t);await loaded(page,2);await go(page,2100);
+    await page.evaluate(()=>window.openReading('b'));await loaded(page,1);const b=await position(page);assert.ok(Math.abs(b.top-b.max)<3);
+    await go(page,4200);await page.evaluate(()=>window.openReading('a'));await loaded(page,2);assert.equal((await position(page)).top,2100);
+    await page.evaluate(()=>window.openReading('b'));await loaded(page,1);assert.equal((await position(page)).top,4200);
+  });
+  await test('page reload restores coordinates from this browser profile',async t=>{
+    const {page,boot}=await fixture(t);await loaded(page,2);await go(page,2700);
+    await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));
+    await page.reload();await boot();await loaded(page,2);assert.equal((await position(page)).top,2700);
+  });
+  await test('restoration waits for delayed multi-part interactive frame geometry',async t=>{
+    const rows=[row('one',3000),{id:'parts',role:'assistant',parts:[row('part-a',2000),row('part-b',7000,true)]}];
+    const {page,entered,gate}=await fixture(t,{rows,saved:{top:9000,left:0},hold:'part-b'});
+    await entered.promise;await settle(page);assert.ok((await position(page)).max<9000);
+    gate.resolve();await loaded(page,3);assert.equal((await position(page)).top,9000,'saved target is not clamped permanently to partial content');
+  });
+  await test('manual scrolling inside a frame cancels pending restoration',async t=>{
+    const {page,entered,gate}=await fixture(t,{rows:[row('one',7000),row('two',6000,true)],saved:{top:10000,left:0},hold:'two'});
+    await entered.promise;await page.waitForFunction(()=>document.querySelector('iframe')?.clientHeight>6000);await settle(page);
+    await page.frameLocator('iframe').locator('body').evaluate(el=>el.dispatchEvent(new WheelEvent('wheel',{deltaY:-200,bubbles:true})));
+    await go(page,1200);gate.resolve();await loaded(page,2);assert.equal((await position(page)).top,1200,'late response respects manual reading');
+    await page.evaluate(()=>window.closeReading());await page.evaluate(()=>window.openReading());await loaded(page,2);assert.equal((await position(page)).top,1200);
+  });
+  await test('polling, new responses and running transitions preserve current reading',async t=>{
+    const {page,sessions}=await fixture(t);await loaded(page,2);await go(page,1500);
+    await page.evaluate(()=>window.pollReading());await loaded(page,2);assert.equal((await position(page)).top,1500);
+    await page.evaluate(()=>window.openReading('a',true));await loaded(page,2);assert.equal((await position(page)).top,1500);
+    sessions.get('a').push(row('third',3000));await page.evaluate(()=>window.openReading('a',false));await loaded(page,3);assert.equal((await position(page)).top,1500);
+  });
+  await test('failed frame and shortened history finish at the available boundary',async t=>{
+    const {page}=await fixture(t,{saved:{top:20000,left:0},fail:true});
+    await page.getByRole('alert').waitFor();await settle(page);const p=await position(page);assert.ok(Math.abs(p.top-p.max)<3);
+    await go(page,800);await page.evaluate(()=>window.pollReading());await settle(page);assert.equal((await position(page)).top,800);
+  });
+  await test('invalid persisted state falls back to latest content',async t=>{
+    const {page}=await fixture(t,{saved:'invalid json'});await loaded(page,2);const p=await position(page);assert.ok(Math.abs(p.top-p.max)<3);
+  });
+  await test('leaving before history arrives does not overwrite the saved position',async t=>{
+    const {page,entered,gate}=await fixture(t,{saved:{top:3400,left:0},hold:'get'});
+    await entered.promise;await page.evaluate(()=>window.closeReading());
+    assert.equal(await page.evaluate(key=>JSON.parse(localStorage.getItem(key)).top,storageKey('a')),3400);
+    gate.resolve();await page.evaluate(()=>window.openReading());await loaded(page,2);assert.equal((await position(page)).top,3400);
+  });
+  await test('unavailable browser storage does not break reading or manual scrolling',async t=>{
+    const {page}=await fixture(t,{storageBlocked:true});await loaded(page,2);const p=await position(page);assert.ok(Math.abs(p.top-p.max)<3);
+    await go(page,600);await page.evaluate(()=>window.pollReading());await loaded(page,2);assert.equal((await position(page)).top,600);
+    await page.evaluate(()=>window.closeReading());
+  });
+}finally{await browser.close();}

@@ -302,3 +302,13 @@ work/probe-multiple-folds.mjs只程序内处理私人回复，输出按钮节点
 新电脑可在实际使用的预设行“正则N”进入来源，选择规则文件并导入，启用该来源及条目。顺序covenant→draft；不要重复导入，原生导入会追加随机ID。仅导入配置无需重启/重生成。角色心声仍来自原素材的规则/脚本，不包含在这份draft规则中。
 
 用户同时报告另一台“写作阅读”正文前思考直接展开。本机合成probe确认当前think/thinking为折叠，analysis不转换；不是源码统一无条件隐藏。说明中加入当前会话绑定、预设/角色来源允许列表、markdownOnly与显示原文等排查步骤。远端用户数据未读取，不能断言其一定仅为来源开关问题，更不能将私人规则或完整预设发GitHub。
+
+## 0.5.15 重开会话恢复阅读位置（2026-11-13）
+
+用户先报告写作会话打开总在顶部，随后明确要求回到上次离开的位置。核对本机DSH公开程序的dsh-client-ui-conversation/ConversationContent：会话共用data-conversation-scroll，DefaultConversationViews只渲染选中的conversation.view；dsh-client-ui-chat自带滚动控制器，WritingReadingView此前没有初始定位或位置持久化。新增真实组件合成用例，旧client在first open should land at latest content断言失败。
+
+仅改client：按sessionId用localStorage保存top/left，不保存正文/脚本/变量。初次无记录时到底部，有记录时恢复；使用宿主已有scrollport，兼容外层普通滚动容器/文档。位置目标保留到所有ReadingFrame实际srcDoc完整测高完成（失败页也终结等待），不以空白iframe或部分高度覆盖目标。loadedSession与data-reading-loaded同时限制恢复时机，旧会话响应不用于新会话。滚动或控件输入中止等待中的恢复，iframe内输入只上报一个无正文的本地事件；后台轮询、running和新消息不重启恢复。
+
+滚动时缓存坐标、150ms合并落盘，pagehide与卸载写最近缓存，不读卸载后已塌缩到0的DOM。存储异常仅禁用持久化，不阻断阅读。位置按电脑/前端配置隔离，不上Git、不跨电脑同步；只记外层坐标，不是段落书签，也不新增跨重开折叠状态恢复。正文改写/布局变化可改变同一坐标对应的段落，缩短后正常clamp。
+
+本轮7个相关测试文件通过：reading-position新增11项（nested/document、重进、顶部0、A/B/A、页面重载、延迟多段、手动滚动、poll/running/new reply、失败页、非法/禁用存储、加载前离开）；reading-refresh-state 13项、reading-lazy-layout 5项、reading-scroll 32个操作delta=0及过期恢复；reading-folds-client、reading-client、client-api通过。node --check和git diff --check通过。未重跑全量56文件，未请求真实模型、读取私人正文或修改素材。代码需更新实际安装目录并正常重启DSH加载；合成浏览器验收不冒充另一台电脑的实机验收。

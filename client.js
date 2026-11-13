@@ -1570,6 +1570,7 @@ window.__ModuleLoader__.load({
       const doc= row.interactive ? surface?.document : '<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'none\'; style-src \'unsafe-inline\'; img-src data:; base-uri \'none\'; form-action \'none\'"><style>:root{color-scheme:light dark}body{margin:0;padding:4px;font:15px/1.75 system-ui;overflow-wrap:anywhere}img{max-width:100%}pre{white-space:pre-wrap}details{padding:8px;border:1px solid #8884;border-radius:8px}</style>'+row.html;
       useEffect(()=>{
         const node=frame.current;if(!node)return;let observer,mutation,resizePending=false,disposed=false,activeDocument=null,cleanDocument=()=>{};
+        node.removeAttribute('data-reading-ready');
         const resize=()=>{
           if(resizePending||disposed||!activeDocument)return;resizePending=true;
           const measuredDocument=activeDocument;
@@ -1592,6 +1593,7 @@ window.__ModuleLoader__.load({
               // may still be clamped to the temporary one-pixel document.
               void node.offsetHeight;
               for(const {el,top,left}of positions)if(el.scrollTop!==top||el.scrollLeft!==left)el.scrollTo({top,left,behavior:'instant'});
+              if(measuredDocument.URL==='about:srcdoc'&&!node.hasAttribute('data-reading-ready'))node.setAttribute('data-reading-ready','true');
             }catch{}
           });
         };
@@ -1629,10 +1631,14 @@ window.__ModuleLoader__.load({
             event.preventDefault();change(event);actRef.current?.({type:'node-key',nodeId:event.target.dataset.readingNode,key:'Enter'});
           };
           const blockSubmit=event=>event.preventDefault();
+          // Events inside an iframe do not bubble to its containing reading view.
+          const interacting=()=>node.dispatchEvent(new Event('writing-reading-interaction',{bubbles:true}));
+          const interactionEvents=['wheel','pointerdown','touchstart','keydown','click'];
+          for(const name of interactionEvents)document.addEventListener(name,interacting,{capture:true,passive:true});
           const toggled=event=>{const id=event.target?.dataset?.readingLocalFold;if(id)localFolds.current.set(id,event.target.open);resize();};
           for(const details of document.querySelectorAll('details[data-reading-local-fold]')){const value=localFolds.current.get(details.dataset.readingLocalFold);if(value!==undefined)details.open=value;}
           document.addEventListener('click',click);document.addEventListener('change',changed);document.addEventListener('input',inputted);document.addEventListener('keydown',key);document.addEventListener('submit',blockSubmit);document.addEventListener('toggle',toggled,true);document.addEventListener('load',resize,true);
-          cleanDocument=()=>{document.removeEventListener('click',click);document.removeEventListener('change',changed);document.removeEventListener('input',inputted);document.removeEventListener('keydown',key);document.removeEventListener('submit',blockSubmit);document.removeEventListener('toggle',toggled,true);document.removeEventListener('load',resize,true);};
+          cleanDocument=()=>{document.removeEventListener('click',click);document.removeEventListener('change',changed);document.removeEventListener('input',inputted);document.removeEventListener('keydown',key);document.removeEventListener('submit',blockSubmit);document.removeEventListener('toggle',toggled,true);document.removeEventListener('load',resize,true);for(const name of interactionEvents)document.removeEventListener(name,interacting,true);};
           for(const [id,pending]of edits.current){const el=document.querySelector('[data-reading-node="'+id+'"]');if(!el)continue;if(pending.values)for(const option of el.options)option.selected=pending.values.includes(option.value);else if(typeof pending.checked==='boolean')el.checked=pending.checked;else el.value=pending.value;}
           const focus=focusRef.current;if(focus?.id&&node.ownerDocument.activeElement===node){const el=document.querySelector('[data-reading-node="'+focus.id+'"]');if(el){el.focus({preventScroll:true});try{if(focus.start!=null)el.setSelectionRange(focus.start,focus.end);}catch{}}}
           for(const saved of scrollState.current){const el=saved.root?document.scrollingElement:saved.id?document.getElementById(saved.id):saved.nodeId?document.querySelector('[data-reading-node="'+saved.nodeId+'"]'):null;el?.scrollTo({top:saved.top,left:saved.left,behavior:'instant'});}
@@ -1662,15 +1668,56 @@ window.__ModuleLoader__.load({
     }
     function WritingReadingView({sessionId,useProjection,useSession}){
       const preset=useProjection('agentPreset'),running=useSession(s=>s.running);
+      const readingRoot=useRef(null),loadedSession=useRef(null);
       const [data,setData]=useState(null),[error,setError]=useState(''),[raw,setRaw]=useState(false),[showRuntime,setShowRuntime]=useState(false);
-      useEffect(()=>{setData(null);setError('');},[sessionId,preset]);
+      useEffect(()=>{loadedSession.current=null;setData(null);setError('');},[sessionId,preset]);
       useEffect(()=>{
         let active=true,pending=false;setError('');
-        const load=async()=>{if(!active||pending||preset!=='writer')return;pending=true;try{const next=await api('GET','/reading?sessionId='+encodeURIComponent(sessionId));if(active){setData(next);setError('');}}catch(e){if(active)setError(e.message);}finally{pending=false;}};
+        const load=async()=>{if(!active||pending||preset!=='writer')return;pending=true;try{const next=await api('GET','/reading?sessionId='+encodeURIComponent(sessionId));if(active){loadedSession.current=sessionId;setData(next);setError('');}}catch(e){if(active)setError(e.message);}finally{pending=false;}};
         void load();const timer=setInterval(load,4000);return()=>{active=false;clearInterval(timer);};
       },[sessionId,preset,running]);
+      useEffect(()=>{
+        const root=readingRoot.current;if(preset!=='writer'||!root)return;
+        const document=root.ownerDocument,win=document.defaultView,key='dsh-writing-guide:reading-position:'+sessionId;
+        // ConversationContent owns this scrollport; older layouts can scroll the document.
+        let scroller=root.closest('[data-conversation-scroll]');
+        if(!scroller)for(let parent=root.parentElement;parent;parent=parent.parentElement){if(/^(auto|scroll)$/.test(win.getComputedStyle(parent).overflowY)){scroller=parent;break;}}
+        scroller??=document.scrollingElement;if(!scroller)return;
+        const events=scroller===document.scrollingElement?document:scroller;
+        let saved=null,lastPosition=null,restoring=true,disposed=false,raf=0,timer=0,writtenTop=scroller.scrollTop;
+        try{const value=JSON.parse(win.localStorage.getItem(key));if(value&&Number.isFinite(value.top)&&value.top>=0&&Number.isFinite(value.left)&&value.left>=0)saved=value;}catch{}
+        const persist=()=>{if(lastPosition)try{win.localStorage.setItem(key,JSON.stringify(lastPosition));}catch{}};
+        const remember=()=>{
+          if(loadedSession.current!==sessionId)return;
+          lastPosition={top:scroller.scrollTop,left:scroller.scrollLeft};clearTimeout(timer);timer=setTimeout(persist,150);
+        };
+        const finish=()=>{if(!restoring)return;restoring=false;resize.disconnect();mutation.disconnect();cancelAnimationFrame(raf);raf=0;remember();};
+        const place=()=>{
+          raf=0;if(disposed||!restoring||loadedSession.current!==sessionId||root.dataset.readingLoaded!=='true'||!root.getClientRects().length)return;
+          scroller.scrollTo({top:saved?saved.top:scroller.scrollHeight,left:saved?.left??scroller.scrollLeft,behavior:'instant'});writtenTop=scroller.scrollTop;
+          // Keep the original target while earlier or multi-part frames are still loading.
+          // A failed frame is terminal too; it must not leave restoration running forever.
+          if([...root.querySelectorAll('[data-reading-document]')].every(el=>el.querySelector('iframe[data-reading-ready]')||el.querySelector('[role="alert"]')))finish();
+        };
+        const schedule=()=>{if(!disposed&&restoring&&!raf)raf=requestAnimationFrame(place);};
+        const resize=new ResizeObserver(schedule),mutation=new MutationObserver(schedule);
+        resize.observe(root);mutation.observe(root,{subtree:true,childList:true,attributes:true,attributeFilter:['data-reading-ready','data-reading-loaded']});
+        const scroll=()=>{if(restoring){if(scroller.scrollTop<writtenTop-1)finish();}else remember();};
+        const interacting=()=>finish();
+        const interactionEvents=['wheel','pointerdown','touchstart','keydown','click','writing-reading-interaction'];
+        for(const name of interactionEvents)events.addEventListener(name,interacting,{capture:true,passive:true});
+        events.addEventListener('scroll',scroll,{passive:true});win.addEventListener('pagehide',persist);schedule();
+        return()=>{
+          disposed=true;resize.disconnect();mutation.disconnect();cancelAnimationFrame(raf);clearTimeout(timer);
+          for(const name of interactionEvents)events.removeEventListener(name,interacting,true);
+          events.removeEventListener('scroll',scroll);win.removeEventListener('pagehide',persist);
+          // React may already have removed the long document here. Save the last
+          // observed position, never the now-clamped scrollTop of an empty view.
+          persist();
+        };
+      },[sessionId,preset]);
       if(preset!=='writer')return h('div',{style:{padding:24}},'写作阅读仅用于写作模式会话。');
-      return h('section',{'data-writing-reading':true,style:{boxSizing:'border-box',width:'100%',maxWidth:'var(--dsh-composer-card-max-width, 952px)',margin:'0 auto',padding:'20px 16px',display:'flex',flexDirection:'column',gap:18}},[
+      return h('section',{ref:readingRoot,'data-writing-reading':true,'data-reading-loaded':data!==null&&loadedSession.current===sessionId,style:{boxSizing:'border-box',width:'100%',maxWidth:'var(--dsh-composer-card-max-width, 952px)',margin:'0 auto',padding:'20px 16px',display:'flex',flexDirection:'column',gap:18}},[
         h('div',{key:'bar',style:{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}},[
           h('strong',{key:'title'},'写作阅读'),h('span',{key:'hint',style:{opacity:.65,fontSize:12}},'显示处理不改变原始对话'),
           h('button',{key:'runtime',type:'button',onClick:()=>setShowRuntime(value=>!value)},showRuntime?'收起脚本界面':'脚本界面'),

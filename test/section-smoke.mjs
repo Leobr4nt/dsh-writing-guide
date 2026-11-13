@@ -74,7 +74,7 @@ const context = (preset, messages = []) => ({
 const messages = [{ type: 'user/message', data: { role: 'user', content: '下雨了。' } }];
 
 assert.equal(sections[0].text(context('writer', messages)), '', 'writer never falls back to hidden legacy injection');
-assert.match(controller.state().reason, /会话接管/);
+assert.match(controller.state().reason, /完整写作流程/);
 const hit = sections[0].text(context('legacy-writer', messages));
 assert.match(hit, /按预设写。/);
 assert.match(hit, /常年有雨。/);
@@ -87,6 +87,11 @@ assert.equal(controller.state().depthBlocks, 1);
 assert.equal(sections[0].text(context('standard', messages)), '', '其它模式为空');
 assert.match(controller.state().reason, /不在注入目标/);
 assert.equal(sections[0].text({}), '');
+
+await store.saveSettings({writingModes:['legacy-writer']});
+assert.equal(sections[0].text(context('legacy-writer',messages)), '', 'selected modes never receive legacy system injection as well');
+assert.match(controller.state().reason,/完整写作流程/);
+await store.saveSettings({writingModes:['writer']});
 
 await store.saveSettings({ enabled: false });
 assert.equal(sections[0].text(context('legacy-writer', messages)), '');

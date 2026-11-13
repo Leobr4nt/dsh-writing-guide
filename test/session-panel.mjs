@@ -4,7 +4,7 @@ const routes=new Map();let preset='writer',listCalls=0,inspectCalls=0;
 const binding={provider:'fixture',model:'synthetic-model'};
 let bindings={defaultBinding:binding,bindings:{}},bindingsError=null,sessionError=null;
 registerScopeRoutes((method,path,handler)=>routes.set(method+' '+path,handler),{
-  store:{loadBindings:async()=>{if(bindingsError)throw bindingsError;return bindings;}},
+  store:{loadSettings:async()=>({writingModes:['writer']}),loadBindings:async()=>{if(bindingsError)throw bindingsError;return bindings;}},
   extensionStore:{load:async()=>({resident:{defaultEnabled:true}})},
   listSessions:async()=>{listCalls++;return [{id:'blank',preset:'standard'}];},
   getSessionInfo:async id=>{if(sessionError)throw sessionError;return id==='blank'?{id,preset,writer:preset==='writer'}:null;},

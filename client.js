@@ -220,6 +220,32 @@ window.__ModuleLoader__.load({
       return String(text ?? '').split(/[,，\n]/).map((item) => item.trim()).filter(Boolean);
     }
 
+    function WritingModeSettings({data,reload,notify,fail}) {
+      const saved=data.settings.writingModes??['writer'];
+      const [selected,setSelected]=useState(null),[busy,setBusy]=useState(false);
+      const choices=[...(data.modes??[])],value=selected??saved;
+      for(const id of value)if(!choices.some(mode=>mode.id===id))choices.push({id,name:id,declared:false});
+      const save=async()=>{
+        setBusy(true);
+        try{await api('POST','/settings',{patch:{writingModes:value}});await reload();setSelected(null);window.dispatchEvent(new Event('writing-guide-modes-changed'));notify('生效模式已保存，从下一次请求开始使用完整写作流程');}
+        catch(error){fail(error);}finally{setBusy(false);}
+      };
+      return h('section',{className:'wg-config-section','data-writing-modes':true},[
+        h('h3',{key:'title'},'完整写作流程生效模式'),
+        h('p',{key:'hint',className:'wg-hint'},'勾选的 DSH 模式使用写作素材和写作模型，接入模板、助手、正则及写作阅读；未单独配置的会话使用默认配置。扩展仍需启用对应来源。'),
+        h('fieldset',{key:'choices',disabled:busy,style:{border:0,padding:0,margin:0},'aria-label':'完整写作流程生效模式'},choices.map(mode=>h('label',{key:mode.id,className:'wg-row'},[
+          h('input',{type:'checkbox',checked:value.includes(mode.id),disabled:(mode.declared===false||!!mode.broken)&&!value.includes(mode.id),onChange:event=>setSelected(event.target.checked?[...value,mode.id]:value.filter(id=>id!==mode.id))}),
+          `${mode.name||mode.id}（${mode.id}）${mode.declared===false||mode.broken?' · 当前不可用':''}`,
+        ]))),
+        h('p',{key:'scope',className:'wg-hint'},'这是模式级设置，影响该模式下的所有会话，从下一次请求生效；清空后不接管任何模式。已有工具调用历史不支持写作接管，请使用新会话。'),
+        h('div',{key:'actions',className:'wg-bar'},[
+          h('button',{className:'wg-btn',disabled:busy||selected===null,onClick:save},'保存生效模式'),
+          h('button',{className:'wg-btn',disabled:busy,onClick:reload},'刷新模式列表'),
+          h('span',{className:'wg-hint','aria-live':'polite'},selected===null?'模式设置已保存':'模式设置有未保存的更改'),
+        ]),
+      ]);
+    }
+
     function GlobalWritingSettings({data,reload,notify,fail}) {
       const [changes,setChanges]=useState({}),[busy,setBusy]=useState(false);
       const draft={...data.settings,...changes,vars:{...data.settings.vars,...changes.vars}};
@@ -927,6 +953,11 @@ window.__ModuleLoader__.load({
           .then((value) => setSessions(Array.isArray(value?.sessions) ? value.sessions : []))
           .catch(() => setSessions([]));
       }, [fail, loadBindings]);
+      useEffect(()=>{
+        let active=true;
+        call('/sessions').then(value=>{if(active)setSessions(Array.isArray(value?.sessions)?value.sessions:[]);}).catch(()=>{});
+        return()=>{active=false;};
+      },[data.settings.writingModes]);
 
       // 切换目标就重新装载：会话 → 其绑定（缺则默认副本）；默认 → defaults 副本
       useEffect(() => {
@@ -970,7 +1001,7 @@ window.__ModuleLoader__.load({
       };
 
       const worldMode = draft.worldSelection ?? ((draft.worldIds ?? []).length ? 'selected' : 'all');
-      const sessionLabel = (session) => `${session.title || '（无标题）'} · ${String(session.id).slice(-6)}${session.preset === 'writer' ? '' : '（非写作模式）'}`;
+      const sessionLabel = (session) => `${session.title || '（无标题）'} · ${String(session.id).slice(-6)}${session.writer ? '' : '（该模式未启用写作流程）'}`;
 
       const currentPreset=(data.presets??[]).find(preset=>preset.id===draft.presetId);
       const compat=currentPreset?.compat;
@@ -986,22 +1017,23 @@ window.__ModuleLoader__.load({
         catch(error){fail(error);}
       };
       const toggleEnabled=async()=>{
-        try{const state=await api('POST','/bindings',{enabled:!bindings.enabled});setBindings(state);notify(state.enabled?'写作模式已启用':'写作模式已停用');}
+        try{const state=await api('POST','/bindings',{enabled:!bindings.enabled});setBindings(state);notify(state.enabled?'完整写作流程已启用':'完整写作流程已停用');}
         catch(error){fail(error);}
       };
 
       return h('div',{className:'wg-config'},[
         h('div',{key:'scroll',className:'wg-config-scroll'},h('div',{className:'wg-config-page'},[
           h('header',{key:'heading',className:'wg-config-heading'},[
-            h('div',{key:'title'},[h('h2',{key:'h'},'写作配置'),h('p',{key:'p',className:'wg-config-lead'},'搭配素材与模型，回到写作模式会话开始创作。')]),
-            h('button',{key:'enabled',type:'button',className:'wg-btn wg-status-toggle',disabled:saving||dirty,onClick:toggleEnabled,title:dirty?'先保存配置再切换启用状态':bindings.enabled?'点击停用写作模式':'点击启用写作模式','aria-label':bindings.enabled?'停用写作模式':'启用写作模式'},[
+            h('div',{key:'title'},[h('h2',{key:'h'},'写作配置'),h('p',{key:'p',className:'wg-config-lead'},'选择生效模式，搭配素材与模型，在会话中开始创作。')]),
+            h('button',{key:'enabled',type:'button',className:'wg-btn wg-status-toggle',disabled:saving||dirty,onClick:toggleEnabled,title:dirty?'先保存配置再切换启用状态':bindings.enabled?'点击停用完整写作流程':'点击启用完整写作流程','aria-label':bindings.enabled?'停用完整写作流程':'启用完整写作流程'},[
               h('span',{key:'dot',className:'wg-status-dot','data-off':String(!bindings.enabled),'aria-hidden':true}),bindings.enabled?'已启用':'已停用',
             ]),
           ]),
+          h(WritingModeSettings,{key:'modes',data,reload,notify,fail}),
           h('div',{key:'scope',className:'wg-config-scope'},[
             h(Field,{key:'target',label:'配置应用于'},h('select',{value:target,disabled:saving,onChange:event=>setTarget(event.target.value)},[
               h('option',{key:'default',value:''},'默认配置'),
-              ...(Array.isArray(sessions) ? sessions : []).map(session=>h('option',{key:session.id,value:session.id,disabled:session.preset!=='writer'},sessionLabel(session))),
+              ...(Array.isArray(sessions) ? sessions : []).map(session=>h('option',{key:session.id,value:session.id,disabled:!session.writer},sessionLabel(session))),
             ])),
             h('button',{key:'refresh',type:'button',className:'wg-btn',disabled:saving,onClick:refreshSessions},'刷新会话'),
             h('div',{key:'hint',className:'wg-hint'},target?'仅影响所选会话；其他会话继续使用原来的配置。':'用于未设置独立配置的写作会话。'),
@@ -1077,7 +1109,7 @@ window.__ModuleLoader__.load({
           h(GlobalWritingSettings,{key:'global',data,reload,notify,fail}),
           h('details',{key:'help',className:'wg-config-help'},[
             h('summary',{key:'summary'},'如何开始写作'),
-            h('p',{key:'body',className:'wg-hint'},'保存配置后，新建 DSH 会话并选择“写作模式”，直接在聊天输入框中发送写作要求。需要为不同会话使用不同素材时，在上方切换配置目标。'),
+            h('p',{key:'body',className:'wg-hint'},'保存配置后，新建 DSH 会话并选择已勾选的生效模式，直接在聊天输入框中发送写作要求。默认只启用“写作模式”；不同会话的素材可在上方单独配置。'),
           ]),
         ])),
         h('footer',{key:'footer',className:'wg-config-footer'},h('div',{className:'wg-config-footer-inner'},[
@@ -1252,7 +1284,7 @@ window.__ModuleLoader__.load({
           const value=await call('/extensions/scopes?'+query);
           if(seq!==requestSeq.current)return;
           setState(value);setTemplate(value.template);
-          const listing=await call('/sessions');if(seq===requestSeq.current)setSessions((listing.sessions??[]).filter(s=>s.writer||s.preset==='writer'));
+          const listing=await call('/sessions');if(seq===requestSeq.current)setSessions((listing.sessions??[]).filter(s=>s.writer));
         } catch(e){if(seq===requestSeq.current)fail(e);}
       },[scopeSession,inspect,presetId,cardId,fail]);
       useEffect(()=>{setState(null);setEditor(null);setText('');setResult('');load();},[load]);
@@ -1497,20 +1529,21 @@ window.__ModuleLoader__.load({
     function WritingSessionPanel({ sessionId, useProjection }) {
       const preset=useProjection('agentPreset');
       const [state,setState]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
-      const current=useRef(sessionId);current.current=sessionId;
+      const current=useRef(''),requestSeq=useRef(0),identity=sessionId+':'+preset;current.current=identity;
       const refresh=useCallback(async()=>{
-        if(!sessionId||preset!=='writer'){setState(null);return;}
-        try{const next=await api('GET','/session-panel?sessionId='+encodeURIComponent(sessionId));if(current.current===sessionId)setState(next);}
-        catch{if(current.current===sessionId){setState(null);setError('写作配置暂时无法读取，请刷新后重试');}}
+        if(!sessionId){setState(null);return;}
+        const seq=++requestSeq.current;
+        try{const next=await api('GET','/session-panel?sessionId='+encodeURIComponent(sessionId));if(current.current===identity&&seq===requestSeq.current){setState(next);setError('');}}
+        catch{if(current.current===identity&&seq===requestSeq.current){setState(null);setError('写作配置暂时无法读取，请刷新后重试');}}
       },[sessionId,preset]);
-      useEffect(()=>{setState(null);setError('');setBusy(false);void refresh();const timer=setInterval(()=>{if(!document.hidden)void refresh();},5000);return()=>clearInterval(timer);},[refresh]);
+      useEffect(()=>{setState(null);setError('');setBusy(false);void refresh();window.addEventListener('writing-guide-modes-changed',refresh);const timer=setInterval(()=>{if(!document.hidden)void refresh();},5000);return()=>{requestSeq.current++;clearInterval(timer);window.removeEventListener('writing-guide-modes-changed',refresh);};},[refresh]);
       const act=async payload=>{
         setBusy(true);setError('');
         try{await api('POST','/session-panel/action',{sessionId,...payload});await refresh();}
-        catch(e){if(current.current===sessionId)setError(e.message);}
-        finally{if(current.current===sessionId)setBusy(false);}
+        catch(e){if(current.current===identity)setError(e.message);}
+        finally{if(current.current===identity)setBusy(false);}
       };
-      if(preset!=='writer')return null;
+      if(state?.writer===false||(!state&&!error))return null;
       const buttonStyle={font:'inherit',border:'1px solid var(--dsw-alias-border-primary, #d7d4cf)',borderRadius:8,padding:'3px 9px',background:'var(--dsw-alias-bg-layer-2, #f4f2ee)',color:'inherit',cursor:'pointer'};
       const content=state?.writer?[
         h('span',{key:'model',title:state.provider},state.writingEnabled===false?'写作接管已停用 · 使用宿主模型':'写作模型：'+(state.model||'尚未配置')),
@@ -1670,12 +1703,13 @@ window.__ModuleLoader__.load({
       const [data,setData]=useState(null),[error,setError]=useState(''),[raw,setRaw]=useState(false),[showRuntime,setShowRuntime]=useState(false);
       useEffect(()=>{loadedSession.current=null;setData(null);setError('');},[sessionId,preset]);
       useEffect(()=>{
-        let active=true,pending=false;setError('');
-        const load=async()=>{if(!active||pending||preset!=='writer')return;pending=true;try{const next=await api('GET','/reading?sessionId='+encodeURIComponent(sessionId));if(active){loadedSession.current=sessionId;setData(next);setError('');}}catch(e){if(active)setError(e.message);}finally{pending=false;}};
-        void load();const timer=setInterval(load,4000);return()=>{active=false;clearInterval(timer);};
+        let active=true,pending=false,serial=0;setError('');
+        const load=async(force=false)=>{if(!active||(pending&&!force))return;const seq=++serial;pending=true;try{const next=await api('GET','/reading?sessionId='+encodeURIComponent(sessionId));if(active&&seq===serial){loadedSession.current=sessionId;setData(next);setError('');}}catch(e){if(active&&seq===serial)setError(e.message);}finally{if(seq===serial)pending=false;}};
+        const changed=()=>void load(true);
+        void load();window.addEventListener('writing-guide-modes-changed',changed);const timer=setInterval(load,4000);return()=>{active=false;clearInterval(timer);window.removeEventListener('writing-guide-modes-changed',changed);};
       },[sessionId,preset,running]);
       useEffect(()=>{
-        const root=readingRoot.current;if(preset!=='writer'||!root)return;
+        const root=readingRoot.current;if(data?.writer===false||!root)return;
         const document=root.ownerDocument,win=document.defaultView;
         // ConversationContent owns this scrollport; older layouts can scroll the document.
         let scroller=root.closest('[data-conversation-scroll]');
@@ -1709,8 +1743,8 @@ window.__ModuleLoader__.load({
           root.removeEventListener('writing-reading-interaction',finish);
           events.removeEventListener('scroll',schedule);
         };
-      },[sessionId,preset]);
-      if(preset!=='writer')return h('div',{style:{padding:24}},'写作阅读仅用于写作模式会话。');
+      },[sessionId,preset,data?.writer===false]);
+      if(data?.writer===false)return h('div',{style:{padding:24}},'当前模式未启用完整写作流程，请在“写作配置 → 完整写作流程生效模式”中选择。');
       return h('section',{ref:readingRoot,'data-writing-reading':true,'data-reading-loaded':data!==null&&loadedSession.current===sessionId,style:{boxSizing:'border-box',width:'100%',maxWidth:'var(--dsh-composer-card-max-width, 952px)',margin:'0 auto',padding:'20px 16px',display:'flex',flexDirection:'column',gap:18}},[
         h('div',{key:'bar',style:{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}},[
           h('strong',{key:'title'},'写作阅读'),h('span',{key:'hint',style:{opacity:.65,fontSize:12}},'显示处理不改变原始对话'),

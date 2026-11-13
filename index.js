@@ -33,6 +33,7 @@ import {ReadingRuntime} from './lib/reading-runtime.js';
 import Ajv from 'ajv';
 import {estimateTokens} from './lib/budget.js';
 import {writingDiagnostic,writingBindingSummary} from './lib/diagnostics.js';
+import {isWritingMode} from './lib/writing-modes.js';
 
 export const inject = ['webServer'];
 
@@ -177,7 +178,7 @@ export function apply(ctx, config = {}) {
       modes.unshift({
         id: DEFAULT_TARGET,
         name: MODE_LABELS[DEFAULT_TARGET] ?? DEFAULT_TARGET,
-        description: '写作指导的默认落点；该模式还没声明时注入不会生效。',
+        description: '完整写作流程的默认模式；需先在 DSH 中声明才能选择。',
         isDefault: false,
         broken: '',
         declared: false,
@@ -266,7 +267,7 @@ export function apply(ctx, config = {}) {
     return out;
   };
 
-  // 写作模式接管：只对已绑定会话生效
+  // 所选模式使用完整写作流程，未独立绑定的会话使用默认配置。
   ctx.effect(() => registerSessionHook({
     ctx,
     store,
@@ -324,6 +325,7 @@ export function apply(ctx, config = {}) {
       return entry?.values && typeof entry.values === 'object' ? entry.values : {};
     };
 
+    const settings = await store.loadSettings();
     const rows = (Array.isArray(raw) ? raw : []).map((entry) => {
       const values = valuesOf(entry);
       const id = String(entry?.sessionId ?? entry?.id ?? '');
@@ -332,7 +334,7 @@ export function apply(ctx, config = {}) {
         id,
         title: String(values.title ?? entry?.title ?? ''),
         preset,
-        writer: preset === 'writer',
+        writer: isWritingMode(settings, preset),
       };
     }).filter((row) => row.id);
     return { rows, attempts };
@@ -343,7 +345,7 @@ export function apply(ctx, config = {}) {
     const session = service('sessions')?.get?.(sessionId);
     if (session) {
       const preset = service('agentPresets')?.presetForSession?.(session) ?? session.header?.agentPreset ?? '';
-      return { id: sessionId, preset, writer: preset === 'writer' };
+      return { id: sessionId, preset, writer: isWritingMode(await store.loadSettings(), preset) };
     }
     return (await collectSessions()).rows.find(row => row.id === sessionId) ?? null;
   };

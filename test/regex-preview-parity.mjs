@@ -19,7 +19,7 @@ const regex=[
 const originalRules=structuredClone(regex),routes=new Map();
 registerScopeRoutes((method,path,handler)=>routes.set(method+' '+path,handler),{
   readBody:async request=>request,
-  store:{loadBindings:async()=>({defaultBinding:{presetId:'synthetic-preset'},bindings:{}})},
+  store:{loadSettings:async()=>({writingModes:['writer']}),loadBindings:async()=>({defaultBinding:{presetId:'synthetic-preset'},bindings:{}})},
   getSessionInfo:async id=>({id,preset:'writer',writer:true}),
   scopes:{resolve:async selected=>{
     assert.equal(selected.sessionId,'synthetic-session');assert.equal(selected.presetId,'synthetic-preset');

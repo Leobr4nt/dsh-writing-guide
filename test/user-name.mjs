@@ -122,7 +122,7 @@ await test('normal writer transport, previews and resident browser use the selec
     const readingHistory = [{ id: 'display', role: 'user', source: { kind: 'user' }, content: 'RX_RAW RX_DISPLAY RX_SEND' }];
     const sourcesBefore = structuredClone({ preset, card, regex, history, readingHistory });
     const routes = createGuideRoutes({ store, bindings, extensionStore: ext, scopes, runtime: { runTemplateBatch },
-      listModes: () => [], lastState: () => ({}), getSessionInfo: async id => ({ id, writer: true }),
+      listModes: () => [], lastState: () => ({}), getSessionInfo: async id => ({ id, preset:'writer', writer: true }),
       readSessionMessages: async () => ({ writer: true, messages: readingHistory }) });
     const call = async (url, body) => {
       const req = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))]);

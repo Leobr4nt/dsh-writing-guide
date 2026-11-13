@@ -328,3 +328,13 @@ work/probe-multiple-folds.mjs只程序内处理私人回复，输出按钮节点
 0.5.16在套装隔离页面两次成功，不据此声称现场已复现；新增自动focus + scroll-behavior:smooth用例则稳定复现top=0/max=9664的错误停止。旧代码靠scrollTop变化及两条layoutMoved公式猜用户意图，条件不完备。现在scroll只schedule，不再finish；真实wheel/pointer/touch/key/click以isTrusted判定，iframe可信输入转发本地事件，主监听提升到data-conversation-content以涵盖宿主WidthHandle滚轮。结束跟随后依旧不因poll/running/新消息重启，重新进入才开启。不新增计时器/位置存储/正文诊断上传。
 
 测试辅助函数原先把scrollTop赋值当人手翻页，现使用Playwright真实滚轮/键盘/点击；bottom断言要求连续6帧稳定，避免平滑聚焦在下一帧开始时的瞬时假阳性。reading-position覆盖22项，包含host flex/contents、自动聚焦nested/document/host、合成事件不接管、真实滚轮/键盘/iframe点击接管。reading-refresh-state 13项、reading-lazy-layout 5项、reading-scroll 32次delta=0及恢复、reading-folds-client、reading-client、client-api通过。实际套装在宿主CSS/插槽隔离布局连续6次重开，最终distance均0、意外stop=0、错误0；不是DSH当前窗口的实机验收。未重跑全部56文件，未生成小说/读取私人内容到输出。部署仍需正常退出后安装并重启，不能仅以文件版本声明现场已修好。
+
+## 0.5.18 可选择完整写作流程的生效模式（2026-11-13）
+
+用户明确要求所选模式使用完整写作流程，非恢复旧系统段追加注入。新增settings.writingModes与lib/writing-modes.js的统一精确匹配，缺省writer、空列表全部停用、不支持通配符；旧settings.targets保留旧兼容语义，不从旧选择自动开启模型接管。ConfigPanel顶部WritingModeSettings使用实际/modes名册，多选草稿、独立保存、刷新、不可用条目可取消，保存不触碰bindings和素材。/settings检查新增模式存在且可用，当前已保存但缺失的模式可保留/移除。
+
+生成入口registerSessionHook、index.collectSessions/getSessionInfo/readSessionMessages、scope context、助手栏和阅读统一按当前模式名单。API沿用writer布尔字段表示已纳入流程，前端不再用preset==='writer'兜底。/reading未入选返回writer:false空消息；模型栏和阅读监听保存事件并定期更新，mode/session变化及保存事件后的晚响应不得恢复过期UI。生成只在下一次请求开始时判定，正在进行的请求不取消；辅助purpose、总开关、绑定开关、原模板/来源/常驻门控不变。选中模式跳过旧section避免重复注入，仍不支持工具调用历史，提示用新会话。
+
+writing-modes测试使用真实apply→注册hook→本机HTTP模拟模型，验证standard模式的角色书/卡、EJS、发送正则、显示正则、非驻留脚本、常驻生成事件和助手按钮落库；未选模式/辅助请求/清空/总开关/绑定开关/模式切换正确回宿主，工具历史失败不发请求、旧targets不迁移。writing-mode-client运行真实组件，验证标准模式模型栏/阅读/底部定位、取消勾选和同会话模式切换的旧响应隔离。writing-config验证实际多选保存、未保存不生效、会话选项刷新及bindings字节不变。section-smoke验证选中自定义模式不重复追加旧section。
+
+完整回归运行58文件，首次56通过、2个旧测试桩缺少新增的loadSettings或preset契约字段；仅补齐regex-preview-parity和user-name桩后，两文件复测通过（user-name含7项）。最终相关客户端、模式集成和旧section检查均通过，无未解决失败。源码语法与diff检查通过，打包检查包含新lib模块。未调用用户真实模型、未读取私人素材正文、未改变本机已选模式；部署后默认仍writer，让用户通过新界面选择。仓库已公开，仅提交源码/合成测试/说明，安装需正常退出DSH后同步实际副本并重启。

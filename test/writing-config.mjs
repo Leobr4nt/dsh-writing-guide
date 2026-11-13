@@ -32,7 +32,7 @@ try {
     return {ok:response==='ok',finish:response==='length'?'length':'stop',content:'SYNTHETIC_REPLY'};
   }});
   const run=async(binding=bindings.defaults(),options={})=>{for await(const _ of hook({provider:'host-default',model:'deepseek',messages:[{role:'user',source:{kind:'user'},content:[{type:'text',text:'SYNTHETIC_INPUT'}]}],...options},'s1',binding)){};};
-  const routes=createGuideRoutes({store,bindings,diagnostics,listModes:()=>[],lastState:()=>({mode:'legacy',injected:true}),defaultModel:()=>({provider:'host-default',model:'deepseek'}),listRoutes:()=>[{provider:'writer-endpoint',model:'writer-model'}],listSessions:()=>[{id:'s1',title:'First',preset:'writer'},{id:'s2',title:'Second',preset:'writer'}],workStore:{list:async()=>[{id:'archive',title:'Archive',messages:1}],load:async()=>({id:'archive',title:'Archive'}),chat:async()=>[{role:'assistant',content:'ARCHIVE_BODY'}]}});
+  const routes=createGuideRoutes({store,bindings,diagnostics,listModes:()=>[{id:'writer',name:'写作模式'},{id:'standard',name:'标准模式'}],lastState:()=>({mode:'legacy',injected:true}),defaultModel:()=>({provider:'host-default',model:'deepseek'}),listRoutes:()=>[{provider:'writer-endpoint',model:'writer-model'}],listSessions:()=>[{id:'s1',title:'First',preset:'writer'},{id:'s2',title:'Second',preset:'writer'},{id:'s3',title:'Third',preset:'standard'}],workStore:{list:async()=>[{id:'archive',title:'Archive',messages:1}],load:async()=>({id:'archive',title:'Archive'}),chat:async()=>[{role:'assistant',content:'ARCHIVE_BODY'}]}});
   const request=async(method,url,body)=>{
     const req=Readable.from(body?[Buffer.from(body)]:[]);req.method=method;let value,status;
     const res={setHeader(){},end(text){value=text;status=this.statusCode;}};
@@ -64,6 +64,15 @@ try {
   await page.evaluate(()=>{window.__ModuleLoader__={load(module){const plugin=module.factory(name=>{if(name==='react')return window.React;throw Error('unknown require');});plugin.apply({slots:{inject(name,fn){if(['main','sidebar.panellist'].includes(name))fn();},register(spec,component){if(spec.name==='main')window.mount(component);return ()=>{};}}});}};});
   await page.addScriptTag({content:await fs.readFile(new URL('../client.js',import.meta.url),'utf8')});
   await page.getByLabel('配置应用于',{exact:true}).waitFor();
+  const modeSettings=page.locator('[data-writing-modes]'),standard=modeSettings.getByRole('checkbox',{name:'标准模式（standard）'});
+  assert.equal(await page.locator('option[value=s3]').isDisabled(),true);
+  await standard.check();assert.deepEqual((await store.loadSettings()).writingModes,['writer'],'selection remains a draft until saved');
+  await modeSettings.getByRole('button',{name:'保存生效模式',exact:true}).click();await modeSettings.getByText('模式设置已保存',{exact:true}).waitFor();
+  assert.deepEqual((await store.loadSettings()).writingModes,['writer','standard']);
+  await page.waitForFunction(()=>!document.querySelector('option[value=s3]').disabled);
+  assert.equal(await fs.readFile(path.join(root,'bindings.json'),'utf8'),originalBindings,'mode selection preserves default/session material bindings');
+  await standard.uncheck();await modeSettings.getByRole('button',{name:'保存生效模式',exact:true}).click();await modeSettings.getByText('模式设置已保存',{exact:true}).waitFor();
+  await page.waitForFunction(()=>document.querySelector('option[value=s3]').disabled);
   assert.equal(await page.locator('.wg-tabs').getByRole('button',{name:'注入',exact:true}).count(),0);
   const status=page.locator('[data-writing-diagnostics]');await status.getByText(/默认配置本身没有请求记录/).waitFor();
   await page.getByLabel('配置应用于',{exact:true}).selectOption('s1');await status.getByText('实际请求模型：writer-endpoint/writer-model',{exact:true}).waitFor();
